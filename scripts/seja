@@ -15,7 +15,7 @@ IFS=$'\n\t'
 # ──────────────────────────────────────────────
 # Metadata
 # ──────────────────────────────────────────────
-SEJA_SCRIPT_VERSION="2.1.0"
+SEJA_SCRIPT_VERSION="2.1.1"
 SEJA_SEJA_DIR="${HOME}/.seja"
 SEJA_ENV_FILE="${SEJA_SEJA_DIR}/.env"
 SEJA_WORKSPACES_CONF="${SEJA_SEJA_DIR}/workspaces.conf"
