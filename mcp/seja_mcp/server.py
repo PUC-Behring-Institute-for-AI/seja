@@ -3,7 +3,10 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastmcp import FastMCP
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 from seja_mcp.db.connection import close_all
 
@@ -59,10 +62,6 @@ async def lifespan(mcp: FastMCP):
     await close_all()
 
 
-async def health_check():
-    return {"status": "ok", "service": "seja-mcp", "version": "2.0.0"}
-
-
 mcp_app = create_app()
 
 
@@ -70,12 +69,19 @@ async def run():
     port = int(os.environ.get("SEJA_MCP_PORT", "8765"))
     host = os.environ.get("SEJA_MCP_HOST", "0.0.0.0")
 
-    async with mcp_app:
-        await mcp_app.run_async(
-            transport="streamable-http",
-            host=host,
-            port=port,
-        )
+    async def health_endpoint(request):
+        return JSONResponse({
+            "status": "ok",
+            "service": "seja-mcp",
+            "version": "2.0.0",
+        })
+
+    app = mcp_app.http_app()
+    app.routes.append(Route("/health", endpoint=health_endpoint))
+
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 def main():

@@ -42,8 +42,14 @@ COPY scripts/seja /usr/local/bin/seja-script
 COPY security/cosign.pub /opt/seja/security/cosign.pub
 COPY docker-compose.yml /usr/local/share/seja/docker-compose.yml
 
-RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-x64.tar.gz \
-    -o /tmp/opencode.tar.gz && \
+ARG TARGETARCH
+
+RUN arch_bin="x64"; \
+    if [ "${TARGETARCH}" = "arm64" ]; then \
+        arch_bin="arm64"; \
+    fi; \
+    curl -fsSL "https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-${arch_bin}.tar.gz" \
+        -o /tmp/opencode.tar.gz && \
     tar xzf /tmp/opencode.tar.gz -C /usr/local/bin/ && \
     mv /usr/local/bin/opencode /usr/local/bin/oc && \
     rm /tmp/opencode.tar.gz
