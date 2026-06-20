@@ -1,6 +1,5 @@
-import os
 import hashlib
-import json
+import os
 from datetime import datetime
 
 from seja_mcp.db.connection import get_db
@@ -18,8 +17,16 @@ def _atomic_write(file_path: str, content: str):
     os.replace(tmp_path, file_path)
 
 
-async def _log_export(workspace_path: str, module: str, file_path: str, sha256: str, status: str = "success", error: str = ""):
+async def _log_export(
+    workspace_path: str,
+    module: str,
+    file_path: str,
+    sha256: str,
+    status: str = "success",
+    error: str = "",
+):
     from uuid_extensions import uuid7
+
     async with get_db(workspace_path) as db:
         await db.execute(
             "INSERT INTO export_log (id, workspace_path, module, file_path, sha256, status, error) "
@@ -34,9 +41,7 @@ async def export_markdown_for(workspace_path: str, module: str = ""):
     errors = []
 
     async with get_db(workspace_path) as db:
-        project_row = await db.execute_fetchall(
-            "SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,)
-        )
+        project_row = await db.execute_fetchall("SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,))
         if not project_row:
             return {"status": "error", "error": "No project found"}
         project = dict(project_row[0])
@@ -63,10 +68,7 @@ async def export_markdown_for(workspace_path: str, module: str = ""):
                 (project["id"],),
             )
             if rows:
-                principles = "\n\n".join(
-                    f"## {r['rank']}. {r['principle']}\n\n{r['description']}"
-                    for r in rows
-                )
+                principles = "\n\n".join(f"## {r['rank']}. {r['principle']}\n\n{r['description']}" for r in rows)
                 _atomic_write(
                     os.path.join(base_dir, "constitution.md"),
                     f"# Constitution\n\n{principles}\n",

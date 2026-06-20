@@ -1,11 +1,11 @@
 import os
+
 from uuid_extensions import uuid7
 
 from seja_mcp.db.connection import get_db
 from seja_mcp.db.schema import ensure_schema, run_migrations
-from seja_mcp.sync.indexer import is_database_empty, reindex_from_markdown
 from seja_mcp.sync.markdown_export import export_all
-from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -36,18 +36,14 @@ def register_tools(mcp):
 
         return {"status": "created", "project_id": project_id, "phase": "setup"}
 
-
     @mcp.tool
     async def get_project(workspace_path: str) -> dict:
         await ensure_schema(workspace_path)
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "not_found"}
             return {"status": "ok", "project": dict(cursor[0])}
-
 
     @mcp.tool
     async def detect_project(path: str) -> dict:
@@ -56,14 +52,11 @@ def register_tools(mcp):
             return {"status": "detected", "workspace_path": path}
         return {"status": "not_found"}
 
-
     @mcp.tool
     async def get_project_status(workspace_path: str) -> dict:
         await ensure_schema(workspace_path)
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT * FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "not_found"}
             p = dict(cursor[0])
@@ -74,7 +67,9 @@ def register_tools(mcp):
             )
 
             phases = await db.execute_fetchall(
-                "SELECT to_phase, COUNT(*) as cnt FROM lifecycle_history WHERE project_id = ? GROUP BY to_phase ORDER BY MAX(created_at) DESC",
+                "SELECT to_phase, COUNT(*) as cnt "
+                "FROM lifecycle_history WHERE project_id = ? "
+                "GROUP BY to_phase ORDER BY MAX(created_at) DESC",
                 (p["id"],),
             )
 
@@ -84,4 +79,3 @@ def register_tools(mcp):
                 "pending_count": pending[0]["cnt"],
                 "phase_history": [dict(r) for r in phases],
             }
-

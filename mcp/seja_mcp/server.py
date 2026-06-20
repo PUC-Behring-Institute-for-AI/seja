@@ -1,6 +1,6 @@
 import asyncio
-import os
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastmcp import FastMCP
@@ -14,10 +14,23 @@ logger = logging.getLogger("seja.mcp")
 def create_app() -> FastMCP:
     mcp = FastMCP("SEJA MCP Server", lifespan=lifespan)
 
-    from seja_mcp.modules import project, constitution, decisions, design
-    from seja_mcp.modules import lifecycle, pending, briefs, telemetry
-    from seja_mcp.modules import plans, research, perspectives, journeys
-    from seja_mcp.modules import tests, experiments, workspace
+    from seja_mcp.modules import (
+        briefs,
+        constitution,
+        decisions,
+        design,
+        experiments,
+        journeys,
+        lifecycle,
+        pending,
+        perspectives,
+        plans,
+        project,
+        research,
+        telemetry,
+        tests,
+        workspace,
+    )
 
     project.register_tools(mcp)
     constitution.register_tools(mcp)
@@ -54,7 +67,6 @@ mcp_app = create_app()
 
 
 async def run():
-    from fastmcp import FastMCP
     port = int(os.environ.get("SEJA_MCP_PORT", "8765"))
     host = os.environ.get("SEJA_MCP_HOST", "0.0.0.0")
 
@@ -72,4 +84,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

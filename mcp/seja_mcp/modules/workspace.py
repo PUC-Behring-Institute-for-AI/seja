@@ -1,9 +1,8 @@
 import os
 import subprocess
 
-from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.sync.indexer import is_database_empty, reindex_from_markdown
+
 
 def register_tools(mcp):
 
@@ -18,13 +17,15 @@ def register_tools(mcp):
 
         return {"status": "skipped", "reason": "Database has data — export only"}
 
-
     @mcp.tool
     async def list_worktrees(workspace_path: str) -> dict:
         try:
             result = subprocess.run(
                 ["git", "worktree", "list"],
-                cwd=workspace_path, capture_output=True, text=True, check=True,
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                check=True,
             )
             lines = result.stdout.strip().split("\n")
             worktrees = []
@@ -36,7 +37,6 @@ def register_tools(mcp):
         except subprocess.CalledProcessError as e:
             return {"status": "error", "error": e.stderr}
 
-
     @mcp.tool
     async def validate_worktree(workspace_path: str) -> dict:
         cwd = os.getcwd()
@@ -47,4 +47,3 @@ def register_tools(mcp):
             "expected_worktree": expected,
             "valid": cwd == expected,
         }
-

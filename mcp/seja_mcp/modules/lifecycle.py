@@ -1,10 +1,11 @@
 from seja_mcp.db.connection import get_db
 from seja_mcp.db.schema import ensure_schema
 from seja_mcp.lifecycle_fsm import (
+    FORWARD_PATHS,
     execute_transition,
     get_allowed_transitions,
-    FORWARD_PATHS,
 )
+
 
 def register_tools(mcp):
 
@@ -12,9 +13,7 @@ def register_tools(mcp):
     async def get_current_phase(workspace_path: str) -> dict:
         await ensure_schema(workspace_path)
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "not_found"}
             phase = cursor[0]["phase"]
@@ -24,7 +23,6 @@ def register_tools(mcp):
                 "phase": phase,
                 "allowed_transitions": allowed,
             }
-
 
     @mcp.tool
     async def transition_phase(workspace_path: str, new_phase: str, reason: str = "", force: bool = False) -> dict:
@@ -49,7 +47,6 @@ def register_tools(mcp):
         )
         return result
 
-
     @mcp.tool
     async def get_lifecycle_history(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -61,13 +58,10 @@ def register_tools(mcp):
             )
             return {"status": "ok", "history": [dict(r) for r in cursor]}
 
-
     @mcp.tool
     async def get_fsm_diagram(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,))
             current = cursor[0]["phase"] if cursor else "setup"
 
         diagram = []
@@ -82,13 +76,10 @@ def register_tools(mcp):
             "diagram": diagram,
         }
 
-
     @mcp.tool
     async def validate_action(workspace_path: str, action: str) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT phase FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "not_found"}
             current_phase = cursor[0]["phase"]
@@ -102,4 +93,3 @@ def register_tools(mcp):
             "allowed": can_proceed,
             "allowed_transitions": allowed,
         }
-

@@ -1,18 +1,22 @@
 from uuid_extensions import uuid7
 
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
     @mcp.tool
     @dual_write()
-    async def create_research(workspace_path: str, question: str, findings: str, sources: str = "", recommendation: str = "") -> dict:
+    async def create_research(
+        workspace_path: str,
+        question: str,
+        findings: str,
+        sources: str = "",
+        recommendation: str = "",
+    ) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "error", "error": "Project not found"}
             pid = cursor[0]["id"]
@@ -27,7 +31,6 @@ def register_tools(mcp):
 
         return {"status": "created", "report_id": report_id}
 
-
     @mcp.tool
     async def get_research(workspace_path: str, report_id: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -41,7 +44,6 @@ def register_tools(mcp):
                 return {"status": "not_found"}
             return {"status": "ok", "report": dict(cursor[0])}
 
-
     @mcp.tool
     async def list_research(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -52,4 +54,3 @@ def register_tools(mcp):
                 (workspace_path,),
             )
             return {"status": "ok", "reports": [dict(r) for r in cursor]}
-

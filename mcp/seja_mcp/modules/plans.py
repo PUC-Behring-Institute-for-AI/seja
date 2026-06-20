@@ -1,9 +1,10 @@
-from uuid_extensions import uuid7
 from datetime import datetime
 
+from uuid_extensions import uuid7
+
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -11,9 +12,7 @@ def register_tools(mcp):
     @dual_write()
     async def create_plan(workspace_path: str, title: str, goal: str, steps: list) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "error", "error": "Project not found"}
             pid = cursor[0]["id"]
@@ -28,15 +27,13 @@ def register_tools(mcp):
                 step_id = str(uuid7())
                 checker = step.get("checker", "")
                 await db.execute(
-                    "INSERT INTO plan_steps (id, plan_id, step_number, description, checker) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO plan_steps (id, plan_id, step_number, description, checker) VALUES (?, ?, ?, ?, ?)",
                     (step_id, plan_id, i + 1, step["description"], checker or None),
                 )
 
             await db.commit()
 
         return {"status": "created", "plan_id": plan_id, "step_count": len(steps)}
-
 
     @mcp.tool
     async def get_plan(workspace_path: str, plan_id: str) -> dict:
@@ -58,7 +55,6 @@ def register_tools(mcp):
             plan["steps"] = [dict(s) for s in steps]
             return {"status": "ok", "plan": plan}
 
-
     @mcp.tool
     async def list_plans(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -69,7 +65,6 @@ def register_tools(mcp):
                 (workspace_path,),
             )
             return {"status": "ok", "plans": [dict(r) for r in cursor]}
-
 
     @mcp.tool
     @dual_write()
@@ -95,7 +90,6 @@ def register_tools(mcp):
 
         return {"status": "approved", "plan_id": plan_id}
 
-
     @mcp.tool
     @dual_write()
     async def update_step_status(workspace_path: str, plan_id: str, step_number: int, new_status: str) -> dict:
@@ -106,8 +100,6 @@ def register_tools(mcp):
             )
             if not cursor:
                 return {"status": "not_found"}
-            step = cursor[0]
-
             if step_number > 1:
                 prev = await db.execute_fetchall(
                     "SELECT * FROM plan_steps WHERE plan_id = ? AND step_number = ?",
@@ -134,7 +126,6 @@ def register_tools(mcp):
 
         return {"status": "updated", "plan_id": plan_id, "step_number": step_number, "new_status": new_status}
 
-
     @mcp.tool
     @dual_write()
     async def mark_step_checker_done(workspace_path: str, plan_id: str, step_number: int) -> dict:
@@ -157,7 +148,6 @@ def register_tools(mcp):
 
         return {"status": "checker_done", "plan_id": plan_id, "step_number": step_number}
 
-
     @mcp.tool
     async def get_last_approved_plan(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -178,4 +168,3 @@ def register_tools(mcp):
             )
             plan["steps"] = [dict(s) for s in steps]
             return {"status": "ok", "plan": plan}
-

@@ -1,8 +1,8 @@
 from uuid_extensions import uuid7
 
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -10,9 +10,7 @@ def register_tools(mcp):
     @dual_write()
     async def log_started(workspace_path: str, phase: str, content: str, session_id: str) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "error", "error": "Project not found"}
             pid = cursor[0]["id"]
@@ -26,7 +24,6 @@ def register_tools(mcp):
             await db.commit()
 
         return {"status": "created", "brief_id": brief_id}
-
 
     @mcp.tool
     @dual_write()
@@ -53,7 +50,6 @@ def register_tools(mcp):
 
         return {"status": "completed", "brief_id": brief_id}
 
-
     @mcp.tool
     async def get_recent_briefs(workspace_path: str, limit: int = 5) -> dict:
         async with get_db(workspace_path) as db:
@@ -65,4 +61,3 @@ def register_tools(mcp):
                 (workspace_path, limit),
             )
             return {"status": "ok", "briefs": [dict(r) for r in cursor]}
-

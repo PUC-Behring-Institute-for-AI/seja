@@ -1,8 +1,6 @@
-from uuid_extensions import uuid7
-
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -17,7 +15,6 @@ def register_tools(mcp):
             )
             return {"status": "ok", "features": [dict(r) for r in cursor]}
 
-
     @mcp.tool
     async def get_feature(workspace_path: str, feature_id: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -31,7 +28,6 @@ def register_tools(mcp):
                 return {"status": "not_found"}
             return {"status": "ok", "feature": dict(cursor[0])}
 
-
     @mcp.tool
     async def list_features(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -43,7 +39,6 @@ def register_tools(mcp):
             )
             return {"status": "ok", "features": [dict(r) for r in cursor]}
 
-
     @mcp.tool
     async def get_conventions(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -54,7 +49,6 @@ def register_tools(mcp):
                 (workspace_path,),
             )
             return {"status": "ok", "conventions": [dict(r) for r in cursor]}
-
 
     @mcp.tool
     @dual_write()
@@ -75,7 +69,6 @@ def register_tools(mcp):
             await db.commit()
         return {"status": "updated", "feature_id": feature_id}
 
-
     @mcp.tool
     async def diff_as_intended_vs_coded(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -89,11 +82,12 @@ def register_tools(mcp):
             for row in cursor:
                 intended = row["as_intended"][:100]
                 coded = row["as_coded"][:100] if row["as_coded"] else ""
-                diffs.append({
-                    "feature_id": row["feature_id"],
-                    "as_intended": intended,
-                    "as_coded": coded,
-                    "has_diff": intended != coded,
-                })
+                diffs.append(
+                    {
+                        "feature_id": row["feature_id"],
+                        "as_intended": intended,
+                        "as_coded": coded,
+                        "has_diff": intended != coded,
+                    }
+                )
             return {"status": "ok", "diffs": diffs}
-

@@ -1,6 +1,7 @@
-from statemachine import StateMachine, State
 import asyncio
 from typing import Optional
+
+from statemachine import State, StateMachine
 
 from seja_mcp.db.connection import get_db
 
@@ -172,7 +173,8 @@ async def execute_transition(
             transition_type = "force" if force else ("reverse" if is_reverse else "forward")
 
             await db.execute(
-                "INSERT INTO lifecycle_history (id, project_id, from_phase, to_phase, reason, transition_type, triggered_by) "
+                "INSERT INTO lifecycle_history "
+                "(id, project_id, from_phase, to_phase, reason, transition_type, triggered_by) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (history_id, project_id, current_phase, target_phase, reason, transition_type, triggered_by),
             )
@@ -185,6 +187,7 @@ async def execute_transition(
             await db.commit()
 
             from seja_mcp.sync.markdown_export import export_markdown_for
+
             await export_markdown_for(workspace_path)
 
             rv["success"] = True

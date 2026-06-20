@@ -1,20 +1,19 @@
-import os
 import asyncio
+import os
 import subprocess
+
 from uuid_extensions import uuid7
 
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
-    _EXPERIMENT_LOCK = asyncio.Lock()
-
+    _experiment_lock = asyncio.Lock()
 
     def _get_worktree_path(workspace_path: str, experiment_name: str) -> str:
         return os.path.join(workspace_path, "..", f".worktree-{experiment_name}")
-
 
     def _validate_cwd(workspace_path: str, experiment_name: str = "") -> dict:
         cwd = os.getcwd()
@@ -29,11 +28,10 @@ def register_tools(mcp):
             return {"valid": False, "cwd": cwd, "expected": expected}
         return {"valid": True, "cwd": cwd}
 
-
     @mcp.tool
     @dual_write()
     async def fork_experiment(workspace_path: str, name: str, branch: str = "") -> dict:
-        async with _EXPERIMENT_LOCK:
+        async with _experiment_lock:
             async with get_db(workspace_path) as db:
                 cursor = await db.execute_fetchall(
                     "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
@@ -58,7 +56,10 @@ def register_tools(mcp):
             try:
                 subprocess.run(
                     ["git", "worktree", "add", "-b", exp_branch, worktree_path, "HEAD"],
-                    cwd=workspace_path, capture_output=True, text=True, check=True,
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    check=True,
                 )
             except subprocess.CalledProcessError as e:
                 return {"status": "error", "error": f"Git worktree failed: {e.stderr}"}
@@ -66,8 +67,7 @@ def register_tools(mcp):
             async with get_db(workspace_path) as db:
                 exp_id = str(uuid7())
                 await db.execute(
-                    "INSERT INTO experiments (id, project_id, name, branch, worktree_path) "
-                    "VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO experiments (id, project_id, name, branch, worktree_path) VALUES (?, ?, ?, ?, ?)",
                     (exp_id, pid, name, exp_branch, worktree_path),
                 )
                 await db.commit()
@@ -79,7 +79,6 @@ def register_tools(mcp):
             "worktree_path": worktree_path,
         }
 
-
     @mcp.tool
     async def list_experiments(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -90,7 +89,6 @@ def register_tools(mcp):
                 (workspace_path,),
             )
             return {"status": "ok", "experiments": [dict(r) for r in cursor]}
-
 
     @mcp.tool
     async def get_experiment_status(workspace_path: str, experiment_id: str) -> dict:
@@ -112,7 +110,6 @@ def register_tools(mcp):
                 "worktree_exists": werk_exists,
             }
 
-
     @mcp.tool
     async def compare_experiments(workspace_path: str, experiment_ids: list) -> dict:
         async with get_db(workspace_path) as db:
@@ -127,20 +124,21 @@ def register_tools(mcp):
                 if cursor:
                     exp = dict(cursor[0])
                     werk_exists = os.path.isdir(exp["worktree_path"])
-                    results.append({
-                        "id": eid,
-                        "name": exp["name"],
-                        "branch": exp["branch"],
-                        "semiotic_score": exp["semiotic_score"],
-                        "worktree_exists": werk_exists,
-                    })
+                    results.append(
+                        {
+                            "id": eid,
+                            "name": exp["name"],
+                            "branch": exp["branch"],
+                            "semiotic_score": exp["semiotic_score"],
+                            "worktree_exists": werk_exists,
+                        }
+                    )
 
             return {
                 "status": "ok",
                 "experiments": results,
                 "comparison": results,
             }
-
 
     @mcp.tool
     @dual_write()
@@ -163,12 +161,18 @@ def register_tools(mcp):
                 if continue_merge:
                     subprocess.run(
                         ["git", "merge", "--continue", "--no-edit"],
-                        cwd=workspace_path, capture_output=True, text=True, check=True,
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        check=True,
                     )
                 else:
                     subprocess.run(
                         ["git", "merge", exp["branch"]],
-                        cwd=workspace_path, capture_output=True, text=True, check=True,
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        check=True,
                     )
             except subprocess.CalledProcessError as e:
                 stderr = e.stderr or ""
@@ -176,18 +180,18 @@ def register_tools(mcp):
                     return {
                         "status": "conflict",
                         "experiment_id": experiment_id,
-                        "error": "Merge conflict detected. Resolve manually, then call merge_experiment with continue_merge=true",
+                        "error": (
+                            "Merge conflict detected. Resolve manually, "
+                            "then call merge_experiment with continue_merge=true"
+                        ),
                         "details": stderr,
                     }
                 return {"status": "error", "error": f"Merge failed: {stderr}"}
 
-            await db.execute(
-                "UPDATE experiments SET status = 'merged' WHERE id = ?", (experiment_id,)
-            )
+            await db.execute("UPDATE experiments SET status = 'merged' WHERE id = ?", (experiment_id,))
             await db.commit()
 
         return {"status": "merged", "experiment_id": experiment_id}
-
 
     @mcp.tool
     @dual_write()
@@ -210,15 +214,20 @@ def register_tools(mcp):
                 try:
                     subprocess.run(
                         ["git", "worktree", "remove", worktree_path],
-                        cwd=workspace_path, capture_output=True, text=True, check=True,
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        check=True,
                     )
-                except subprocess.CalledProcessError as e:
+                except subprocess.CalledProcessError:
                     pass
 
             try:
                 subprocess.run(
                     ["git", "branch", "-D", branch],
-                    cwd=workspace_path, capture_output=True, text=True,
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
                 )
             except Exception:
                 pass
@@ -234,4 +243,3 @@ def register_tools(mcp):
             "experiment_id": experiment_id,
             "worktree_removed": not os.path.isdir(worktree_path),
         }
-

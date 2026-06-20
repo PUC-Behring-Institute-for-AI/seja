@@ -1,6 +1,7 @@
-import aiosqlite
 import os
 from contextlib import asynccontextmanager
+
+import aiosqlite
 
 DB_PATH = os.environ.get("SEJA_DB_PATH", os.path.expanduser("~/.seja-state/seja.db"))
 

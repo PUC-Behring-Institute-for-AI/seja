@@ -232,9 +232,10 @@ CREATE TABLE IF NOT EXISTS _migrations (
 
 
 async def run_migrations(db_path: str = ""):
-    from seja_mcp.db.connection import get_db, get_db_path
     import glob
     import os
+
+    from seja_mcp.db.connection import get_db
 
     async with get_db(db_path) as db:
         await db.execute("""
@@ -255,9 +256,7 @@ async def run_migrations(db_path: str = ""):
             if not row:
                 with open(f) as sql:
                     await db.executescript(sql.read())
-                await db.execute(
-                    "INSERT INTO _migrations (name) VALUES (?)", (name,)
-                )
+                await db.execute("INSERT INTO _migrations (name) VALUES (?)", (name,))
                 await db.commit()
 
 

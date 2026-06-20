@@ -1,9 +1,7 @@
 import os
 import re
-import yaml
 
 from seja_mcp.db.connection import get_db
-
 
 DECISION_RE = re.compile(r"^D-\d{3}")
 
@@ -39,8 +37,7 @@ async def reindex_from_markdown(workspace_path: str):
             if name_match:
                 pid = str(uuid7())
                 await db.execute(
-                    "INSERT OR IGNORE INTO projects (id, workspace_path, name, phase) "
-                    "VALUES (?, ?, ?, ?)",
+                    "INSERT OR IGNORE INTO projects (id, workspace_path, name, phase) VALUES (?, ?, ?, ?)",
                     (pid, workspace_path, name_match.group(1), phase_match.group(1) if phase_match else "setup"),
                 )
 
@@ -51,7 +48,6 @@ async def reindex_from_markdown(workspace_path: str):
             sections = re.findall(r"^## (\d+)\.\s+(.+?)\n\n(.+?)(?=\n## |\Z)", content, re.MULTILINE | re.DOTALL)
             for rank_str, principle, description in sections:
                 pid = str(uuid7())
-                pid_project = str(uuid7())
                 await db.execute(
                     "INSERT OR IGNORE INTO constitution_principles (id, project_id, rank, principle, description) "
                     "VALUES (?, (SELECT id FROM projects WHERE workspace_path = ?), ?, ?, ?)",

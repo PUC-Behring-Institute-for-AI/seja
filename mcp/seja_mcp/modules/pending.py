@@ -1,9 +1,10 @@
-from uuid_extensions import uuid7
 from datetime import datetime
 
+from uuid_extensions import uuid7
+
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -18,28 +19,23 @@ def register_tools(mcp):
             )
             return {"status": "ok", "pending": [dict(r) for r in cursor]}
 
-
     @mcp.tool
     @dual_write()
     async def add_pending(workspace_path: str, phase_required: str, description: str) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "error", "error": "Project not found"}
             pid = cursor[0]["id"]
 
             action_id = str(uuid7())
             await db.execute(
-                "INSERT INTO pending_actions (id, project_id, phase_required, description) "
-                "VALUES (?, ?, ?, ?)",
+                "INSERT INTO pending_actions (id, project_id, phase_required, description) VALUES (?, ?, ?, ?)",
                 (action_id, pid, phase_required, description),
             )
             await db.commit()
 
         return {"status": "created", "pending_id": action_id}
-
 
     @mcp.tool
     @dual_write()
@@ -65,7 +61,6 @@ def register_tools(mcp):
 
         return {"status": "resolved", "pending_id": pending_id}
 
-
     @mcp.tool
     async def list_pending_blocking_transition(workspace_path: str, target_phase: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -82,4 +77,3 @@ def register_tools(mcp):
                 "count": len(cursor),
                 "can_transition": len(cursor) == 0,
             }
-

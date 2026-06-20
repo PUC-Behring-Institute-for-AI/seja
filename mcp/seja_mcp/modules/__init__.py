@@ -1,5 +1,5 @@
 from functools import wraps
-from seja_mcp.db.connection import get_db
+
 from seja_mcp.sync.markdown_export import export_markdown_for
 
 
@@ -19,5 +19,7 @@ def dual_write(workspace_arg_pos: int = 0):
                     result["_export_warning"] = export_result.get("error")
 
             return result
+
         return wrapper
+
     return decorator

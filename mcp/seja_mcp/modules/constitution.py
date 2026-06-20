@@ -1,8 +1,7 @@
-from uuid_extensions import uuid7
-
 from seja_mcp.db.connection import get_db
 from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -26,7 +25,6 @@ def register_tools(mcp):
                 "principles": [dict(r) for r in principles],
             }
 
-
     @mcp.tool
     async def get_principle(workspace_path: str, principle_id: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -40,7 +38,6 @@ def register_tools(mcp):
                 return {"status": "not_found"}
             return {"status": "ok", "principle": dict(cursor[0])}
 
-
     @mcp.tool
     async def list_principles(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -51,7 +48,6 @@ def register_tools(mcp):
                 (workspace_path,),
             )
             return {"status": "ok", "principles": [dict(r) for r in cursor]}
-
 
     @mcp.tool
     @dual_write()
@@ -76,15 +72,16 @@ def register_tools(mcp):
                 if len(principle_keywords) > 2:
                     matches = sum(1 for kw in principle_keywords if kw in description_lower)
                     if matches < 1:
-                        violations.append({
-                            "principle_id": row["id"],
-                            "principle": row["principle"],
-                            "reason": f"Description does not reference principle: {row['principle']}",
-                        })
+                        violations.append(
+                            {
+                                "principle_id": row["id"],
+                                "principle": row["principle"],
+                                "reason": f"Description does not reference principle: {row['principle']}",
+                            }
+                        )
 
             return {
                 "status": "ok",
                 "compliant": len(violations) == 0,
                 "violations": violations,
             }
-

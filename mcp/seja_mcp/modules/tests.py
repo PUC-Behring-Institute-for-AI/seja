@@ -1,18 +1,24 @@
 from uuid_extensions import uuid7
 
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
     @mcp.tool
     @dual_write()
-    async def record_test_run(workspace_path: str, plan_id: str, scope: str, total: int, passed: int, failed: int, details: str = "") -> dict:
+    async def record_test_run(
+        workspace_path: str,
+        plan_id: str,
+        scope: str,
+        total: int,
+        passed: int,
+        failed: int,
+        details: str = "",
+    ) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
                 return {"status": "error", "error": "Project not found"}
             pid = cursor[0]["id"]
@@ -28,7 +34,6 @@ def register_tools(mcp):
 
         return {"status": "recorded", "run_id": run_id, "result": result}
 
-
     @mcp.tool
     async def get_test_results(workspace_path: str, plan_id: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -40,7 +45,6 @@ def register_tools(mcp):
                 (workspace_path, plan_id),
             )
             return {"status": "ok", "runs": [dict(r) for r in cursor]}
-
 
     @mcp.tool
     async def get_test_summary(workspace_path: str) -> dict:
@@ -61,4 +65,3 @@ def register_tools(mcp):
             )
 
             return {"status": "ok", "summary": [dict(r) for r in summary]}
-

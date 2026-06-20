@@ -1,9 +1,10 @@
-from uuid_extensions import uuid7
 from datetime import datetime, timedelta
 
+from uuid_extensions import uuid7
+
 from seja_mcp.db.connection import get_db
-from seja_mcp.db.schema import ensure_schema
 from seja_mcp.modules import dual_write
+
 
 def register_tools(mcp):
 
@@ -20,13 +21,17 @@ def register_tools(mcp):
         error: str = "",
     ) -> dict:
         async with get_db(workspace_path) as db:
-            cursor = await db.execute_fetchall(
-                "SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,)
-            )
+            cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
             if not cursor:
-                await db.execute("INSERT INTO projects (id, workspace_path, name) VALUES (?, ?, ?)", (str(uuid7()), workspace_path, workspace_path.split("/")[-1]))
+                await db.execute(
+                    "INSERT INTO projects (id, workspace_path, name) VALUES (?, ?, ?)",
+                    (str(uuid7()), workspace_path, workspace_path.split("/")[-1]),
+                )
                 await db.commit()
-                cursor = await db.execute_fetchall("SELECT id FROM projects WHERE workspace_path = ?", (workspace_path,))
+                cursor = await db.execute_fetchall(
+                    "SELECT id FROM projects WHERE workspace_path = ?",
+                    (workspace_path,),
+                )
             pid = cursor[0]["id"]
 
             tid = str(uuid7())
@@ -48,7 +53,6 @@ def register_tools(mcp):
             await db.commit()
 
         return {"status": "recorded", "telemetry_id": tid}
-
 
     @mcp.tool
     async def query_telemetry(workspace_path: str) -> dict:
@@ -79,7 +83,6 @@ def register_tools(mcp):
                 "recent": [dict(r) for r in recent],
             }
 
-
     @mcp.tool
     async def get_anomalies(workspace_path: str) -> dict:
         async with get_db(workspace_path) as db:
@@ -103,7 +106,6 @@ def register_tools(mcp):
                 "status": "ok",
                 "stuck_loops": [dict(r) for r in stuck_loops],
             }
-
 
     @mcp.tool
     @dual_write()
@@ -135,4 +137,3 @@ def register_tools(mcp):
             await db.commit()
 
         return {"status": "rotated", "retention_days": retention_days}
-
