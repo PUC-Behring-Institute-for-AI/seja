@@ -42,7 +42,7 @@ jobs:
       - name: Test invariants
         run: pytest tests/invariants/ -v
 
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         with:
           file: ./coverage.xml
           flags: unit,integration,invariants
