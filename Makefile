@@ -1,4 +1,4 @@
-IMAGE_NAME ?= ghcr.io/anomalyco/seja
+IMAGE_NAME ?= ghcr.io/puc-behring-institute-for-ai/seja
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 DOCKER_BUILDKIT := 1
 COMPOSE_FILE := docker-compose.yml

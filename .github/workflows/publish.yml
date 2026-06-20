@@ -10,7 +10,7 @@ on:
     - cron: "0 6 * * 1"
 
 env:
-  IMAGE_NAME: ghcr.io/anomalyco/seja
+  IMAGE_NAME: ghcr.io/puc-behring-institute-for-ai/seja
   COSIGN_KEYLESS: "true"
   ACTIONS_STEP_DEBUG: "false"
 

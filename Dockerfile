@@ -33,9 +33,14 @@ COPY --from=build /usr/local/bin/seja /usr/local/bin/seja
 COPY Docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+RUN mkdir -p /opt/seja/security /usr/local/share/seja
+
 COPY opencode/ /root/.config/opencode/
 COPY project-template/ /root/.config/seja/project-template/
 COPY security/cosign.pub /root/.seja/cosign.pub
+COPY scripts/seja /usr/local/bin/seja-script
+COPY security/cosign.pub /opt/seja/security/cosign.pub
+COPY docker-compose.yml /usr/local/share/seja/docker-compose.yml
 
 RUN curl -fsSL https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-amd64.tar.gz \
     -o /tmp/opencode.tar.gz && \

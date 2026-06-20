@@ -141,7 +141,7 @@ SEJA é um **agent harness de governance** que opera sobre o OpenCode como ferra
 | 4 | **Agentes com responsabilidade única** — cada agente faz uma coisa bem, com permissões correspondentes | OpenCode frontmatter scopo: `bash:`, `write:`, `edit:`, `read:` permit/deny explícitos. `seja-implement` tem bash com allow-list | Verificar frontmatter de cada .md.tpl contra sua responsabilidade declarada |
 | 5 | **Modelo certo para cada tarefa** — 3 tiers de modelo configuráveis | `seja-models` atualiza `.env`; `entrypoint.sh` roda `envsubst` com `SEJA_TIER_*` nos templates no startup | `docker exec seja env | grep SEJA_TIER` retorna os modelos ativos |
 | 6 | **Script autossuficiente** — `seja` é o único artefato que o usuário instala | Script contém compose template como heredoc. Zero dependência de repo clonado | `seja setup` funciona sem git clone. Testar em máquina limpa |
-| 7 | **Imagem como fonte de verdade do runtime** — `seja update` extrai o script e o compose template da imagem | `seja update` extrai `seja-script` + `docker-compose.yml` da imagem, compara SHA, verifica assinatura cosign, substitui atomicamente | `cosign verify ghcr.io/org/seja:latest` → identidade do maintainer |
+| 7 | **Imagem como fonte de verdade do runtime** — `seja update` extrai o script e o compose template da imagem | `seja update` extrai `seja-script` + `docker-compose.yml` da imagem, compara SHA, verifica assinatura cosign, substitui atomicamente | `cosign verify ghcr.io/puc-behring-institute-for-ai/seja:latest` → identidade do maintainer |
 | 8 | **Enforcement em camadas** — prompt, API, infra | Três camadas independentes: (1) frontmatter do OpenCode, (2) absence de tools no MCP, (3) docker-socket-proxy + seccomp + cap_drop. Cada camada bloqueia independentemente | Teste: desativar camada 1 → camadas 2 e 3 ainda bloqueiam |
 | 9 | **Designer é o decididor** — o harness propõe, o humano decide | FSM permite `force=true` com reason obrigatório. Toda transição forçada é registrada. Prompt nunca auto-executa recomendação | `lifecycle_history` com `forced=true` quando humano override. Não há tool de auto-aprovação |
 
@@ -3069,7 +3069,7 @@ Se uma camada falhar (ex: bug no frontmatter), a próxima ainda bloqueia.
 | Script adulterado | Release asset assinado com cosign + checksum SHA256 | Script corrompido não passa na verificação |
 | Rollback malicioso | Backups mantêm apenas 5 últimas versões, com SHA verificável | Versão antiga verificada com `bash -n` antes de aplicar |
 
-**Teste:** `cosign verify ghcr.io/org/seja:latest` retorna identidade do maintainer.
+**Teste:** `cosign verify ghcr.io/puc-behring-institute-for-ai/seja:latest` retorna identidade do maintainer.
 `seja update` com imagem sem assinatura → aborta.
 
 ### Matriz de Ameaças e Mitigações
