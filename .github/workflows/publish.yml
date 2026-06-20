@@ -42,9 +42,9 @@ jobs:
       - name: Test invariants
         run: pytest tests/invariants/ -v
 
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v7
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
           flags: unit,integration,invariants
           token: ${{ secrets.CODECOV_TOKEN }}
         if: github.event_name != 'pull_request'
@@ -109,9 +109,9 @@ jobs:
             --output-signature scripts/seja.sig \
             --yes
 
-      - uses: anchore/sbom-action@v0
+      - uses: anchore/sbom-action@v0.24.0
         with:
-          image: ${{ env.IMAGE_NAME }}:${{ github.ref_name }}
+          image: ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -126,7 +126,7 @@ jobs:
           echo "" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Release ${{ github.ref_name }}
           body: ${{ steps.changelog.outputs.changelog }}
@@ -145,6 +145,7 @@ jobs:
     permissions:
       contents: read
       security-events: write
+      actions: read
 
     steps:
       - uses: actions/checkout@v4
