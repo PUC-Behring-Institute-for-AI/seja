@@ -1,0 +1,11 @@
+{
+  "name": "seja-debug",
+  "description": "Diagnose a problem or anomaly",
+  "command": "seja-debug",
+  "triggers": {
+    "agent": "seja-oracle",
+    "type": "agent"
+  },
+  "expects": "description of the problem",
+  "instructions": "Diagnose the described problem or anomaly using deep reasoning analysis.\n\n## Workflow\n1. seja.project.detect() → identify active project context\n2. seja.lifecycle.get_current_phase() → understand current state\n3. seja.telemetry.get_anomalies() → check for recorded anomalies\n4. seja.decisions.search_decisions(topic) → find relevant past decisions\n5. seja.constitution.check_compliance(artifact) → verify against principles\n6. Collect diagnostic evidence:\n   - Error logs and stack traces from project\n   - Recent telemetry data\n   - Pending actions and their resolution status\n   - Recent lifecycle transitions\n\n## Analysis Framework\nApply structured reasoning:\n1. **Symptom description** — what is observed\n2. **Root cause hypothesis** — what could cause this\n3. **Evidence evaluation** — which hypothesis fits the evidence\n4. **Confidence assessment** — how certain is the diagnosis\n5. **Resolution path** — concrete steps to fix\n6. **Prevention** — how to avoid recurrence\n\n## Problem Description\n$ARGUMENTS\n\nAfter diagnosis, present findings with:\n- Most likely cause with confidence level\n- Alternative explanations\n- Recommended fix (with specific tool calls or code changes)\n- Preventative measures for the future"
+}

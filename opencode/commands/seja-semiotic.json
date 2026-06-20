@@ -1,0 +1,11 @@
+{
+  "name": "seja-semiotic",
+  "description": "Semiotic inspection of current state",
+  "command": "seja-semiotic",
+  "triggers": {
+    "agent": "seja-semiotic-inspector",
+    "type": "agent"
+  },
+  "expects": "optional scope (feature, project, journey)",
+  "instructions": "Perform semiotic inspection of the current project state to detect communicability gaps between design intent and implementation.\n\n## Sign Classification\nEvaluate the system across three sign categories:\n1. **Metalinguistic signs** — Does the system explain itself? Tooltips, help text, error messages, onboarding\n2. **Static signs** — Is the layout and structure coherent? Navigation, screen organization, visual hierarchy\n3. **Dynamic signs** — Are transitions and behaviors clear? Loading states, animations, feedback loops\n\n## Inspection Scope Levels\n- **feature** → inspect a specific feature's communicability\n- **project** → full semiotic audit of the entire project\n- **journey** → inspect specific journey maps (JM-TB vs JM-E comparison)\n\n## Workflow\n1. seja.project.detect() → identify active project\n2. seja.design.get_global_metacomm() → load design intent\n3. seja.design.list_features() → get all features with as-coded status\n4. seja.design.diff_as_intended_vs_coded() → compare intent vs implementation\n5. seja.journeys.list_journeys(\"designed\") → get planned journeys (JM-TB)\n6. seja.journeys.list_journeys(\"discovered\") → get discovered journeys (JM-E)\n7. Case-specific deep inspection based on scope\n\n## Output\nProduce a structured semiotic report:\n- **Communicability gaps**: specific divergences between intended and actual communication\n- **Missing metalinguistic signs**: where the system fails to explain itself\n- **Sign type analysis**: breakdown by metalinguistic/static/dynamic\n- **Spec-drift assessment**: how far the coded system diverges from design intent\n- **JM-E generation**: create discovered journey maps (if gaps found) via seja.journeys.create_journey(\"discovered\", ...)\n- **Recommendations**: prioritized actions to improve communicability\n\n## Scope\n$ARGUMENTS"
+}

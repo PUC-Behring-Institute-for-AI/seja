@@ -1,0 +1,11 @@
+{
+  "name": "seja-brief",
+  "description": "Generate context brief for handoff",
+  "command": "seja-brief",
+  "triggers": {
+    "agent": "seja-brief",
+    "type": "agent"
+  },
+  "expects": "optional audience (next agent type)",
+  "instructions": "Generate a compact context brief summarizing the current project state for handoff to another agent or for session persistence.\n\n## Audience Types\n- **next-agent** → brief for the next agent in the workflow (specifies what was done, what is pending, what the next agent should do)\n- **human** → summary for the designer/human stakeholder (less technical, more outcome-focused)\n- **session-persist** → compact state for session continuity between invocations\n- **experiment** → brief for parallel experiment context\n\n## Brief Structure\n- **Project**: name, phase, workspace path\n- **Current state**: FSM phase, active plan id, step progress\n- **Recent completions**: last 3 accomplished items\n- **Pending items**: open actions blocking transition\n- **Decisions made**: recent D-NNN decisions relevant to context\n- **Known issues**: active problems or blockers\n- **Next recommended action**: what the recipient should do next\n- **Context size**: optimized to be under context window limits\n\n## Workflow\n1. seja.project.detect() → identify project\n2. seja.project.get_project_status() → get structured health report\n3. seja.lifecycle.get_current_phase() → current FSM phase\n4. seja.lifecycle.get_lifecycle_history() → recent transitions\n5. seja.plans.get_last_approved_plan() → active plan\n6. seja.pending.list_pending() → open actions\n7. seja.decisions.list_decisions() → active decisions\n8. seja.telemetry.query_telemetry(days=7) → recent activity summary\n9. Assemble brief tailored to the requested audience\n10. Register brief via seja.briefs.log_started()/log_done()\n\n## Target Audience\n$ARGUMENTS"
+}

@@ -1,0 +1,76 @@
+# [NOME_DO_PROJETO] — Regras do Projeto
+
+> Herda: `~/.config/opencode/AGENTS.md` (SEJA Harness — camada global)
+> Os invariantes da camada global NÃO podem ser sobrescritos.
+
+## Projeto
+
+- **Nome:** **[PREECHER]**
+- **Descrição:** **[PREECHER]**
+- **Stack:** **[PREECHER]**
+- **Stack standard:** `~/.config/opencode/standards/[LINGUAGEM].md`
+- **Workspace:** `/workspace/[NOME_DO_PROJETO]`
+
+## Fase Atual do Lifecycle
+
+**[setup / design / research / plan / implement / check / document / reflect]**
+
+## Constituição do Projeto
+
+| ID | Tipo | Princípio |
+|----|------|-----------|
+| T1 | Técnico | **[PREECHER]** |
+| T2 | Técnico | **[PREECHER]** |
+| Q1 | Qualidade | **[PREECHER]** |
+| Q2 | Qualidade | **[PREECHER]** |
+
+Ver constituição completa com rationale: `.seja/constitution.md`
+
+## Arquitetura e Padrões
+
+**[PREECHER — ex: layered, hexagonal, event-driven, etc.]**
+
+- Padrão arquitetural: **[PREECHER]**
+- Estrutura de diretórios: **[PREECHER]**
+- Convenções de código: `.seja/conventions.md`
+
+## Roteamento de Tarefas
+
+| Tipo de tarefa | Agente responsável | Notas |
+|----------------|-------------------|-------|
+| Design / Intenção | @seja-design | |
+| Pesquisa | @seja-research | |
+| Planejamento | @seja-plan | |
+| Implementação | @seja-implement | Requer plano aprovado |
+| Revisão de código | @seja-code-reviewer | |
+| Testes | @seja-test-runner | |
+| Inspeção semiótica | @seja-semiotic-inspector | |
+| Reflexão | @seja-reflect | |
+
+## Axiomas do Projeto (Não Negociáveis)
+
+Estes axiomas são específicos deste projeto e se somam aos invariantes globais do SEJA.
+
+- **[PREECHER]**
+- **[PREECHER]**
+
+## Plano Ativo
+
+**[PLAN_ID]** — Status: **[draft / approved / in_progress]** — Checker: **[on / off]** (D16)
+
+## Pending Actions
+
+**[N]** ações pendentes — **[N]** bloqueiam transição para a próxima fase.
+
+## Referências Rápidas
+
+- Convenções: `.seja/conventions.md`
+- Design intent: `.seja/product-design-as-intended.md`
+- Estado as-coded: `.seja/product-design-as-coded.md`
+- Decisões (D-NNN): `.seja/decisions/`
+- Research: `.seja/research/`
+- Planos: `.seja/plans/`
+- Journey maps: `.seja/journeys/`
+- Perspectivas: `.seja/perspectives/`
+- Experimentos: `.seja/experiments/`
+- Telemetria e briefs: `.seja/_output/`

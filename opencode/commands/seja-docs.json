@@ -1,0 +1,11 @@
+{
+  "name": "seja-docs",
+  "description": "Generate or update project documentation",
+  "command": "seja-docs",
+  "triggers": {
+    "agent": "seja-docs",
+    "type": "agent"
+  },
+  "expects": "document type and scope",
+  "instructions": "Generate or update project documentation based on the specified type and scope.\n\n## Document Types\n- **readme** → Update README.md with current project state, setup, and API overview\n- **changelog** → Update CHANGELOG.md with latest changes\n- **api-reference** → Generate API reference documentation\n- **drr** → Generate or update Decision Record (D-NNN) from current state\n- **architecture** → Update architecture overview documentation\n- **decision-log** → Export decisions log via seja.decisions.export()\n\n## Workflow\n1. seja.project.detect() → identify active project\n2. seja.lifecycle.get_current_phase() → verify current phase\n3. seja.decisions.list_decisions() → gather active decisions\n4. seja.design.list_features() → get feature status\n5. seja.plans.get_last_approved_plan() → get active plan context\n6. Generate requested document type with:\n   - Current project phase and status\n   - Active decisions and their rationale\n   - Feature implementation status (as-intended vs as-coded)\n   - Journey maps (JM-TB and JM-E)\n   - Pending actions and blockers\n7. Write to appropriate path in project\n\nAfter completion:\n- Record the documentation action in telemetry\n- If in document phase: seja.lifecycle.transition_phase(\"document\")\n\n## Document Request\nType: $ARGUMENTS"
+}

@@ -1,0 +1,11 @@
+{
+  "name": "seja-check",
+  "description": "Run quality checks on current phase",
+  "command": "seja-check",
+  "triggers": {
+    "agent": "seja-check",
+    "type": "agent"
+  },
+  "expects": "phase to check (or current phase)",
+  "instructions": "Run quality checks on the specified phase (default: current phase).\n\n## Available Modes\n- **review** → @seja-code-reviewer (diff of HEAD)\n- **health** → @seja-harness-health\n- **telemetry** → seja.telemetry.get_anomalies()\n- **semiotic** → @seja-semiotic-inspector (creates JM-E if gaps detected)\n- **standards** → @seja-standards-checker (D16 compliance verification)\n- **tests** → @seja-test-runner (runs test suite)\n\n## Workflow\n1. seja.project.detect() → identify active project\n2. seja.lifecycle.get_current_phase() → validate current FSM phase\n3. seja.constitution.get() → load principles for compliance checks\n4. Execute requested mode(s):\n   - Run lifecycle validation against exit criteria gates\n   - Verify D16 checker compliance between steps\n   - Run test verification if applicable\n   - Check pending actions blocking transition\n5. Report structured results with: PASS/FAIL per check, blocking vs advisory, recommendations\n\nIf all checks pass, transition to next phase:\n- seja.lifecycle.transition_phase(\"check\")\n- \"Check concluído. Fase atual: check. Execute /seja-document para avançar.\"\n\n## Scope\n$ARGUMENTS"
+}

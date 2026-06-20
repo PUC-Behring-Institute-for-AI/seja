@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+venv/
+
+# Docker
+.seja-state/
+
+# OS
+.DS_Store
+
+# Security (dev keys - never commit)
+security/cosign.key
+
+# Environment
+.env
+seja.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Tests
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Litestream
+litestream-data/
+
+# Git worktrees
+.worktrees/
+
+# SQLite
+*.db
+*.db-journal
+*.db-wal

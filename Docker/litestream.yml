@@ -1,0 +1,7 @@
+dbs:
+  - path: /data/seja-state/seja.db
+    replicas:
+      - url: ${LITESTREAM_REPLICA_URL:-file:///data/replica}
+        retention: 720h
+        snapshot-interval: 24h
+replica-on-error: ignore

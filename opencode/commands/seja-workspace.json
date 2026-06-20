@@ -1,0 +1,11 @@
+{
+  "name": "seja-workspace",
+  "description": "Manage workspaces and experiments",
+  "command": "seja-workspace",
+  "triggers": {
+    "agent": "seja-workspace",
+    "type": "agent"
+  },
+  "expects": "action (create|list|merge|discard) and name",
+  "instructions": "Manage workspaces, worktrees, and parallel experiments.\n\n## Actions\n- **create** → Create a new workspace or experiment worktree\n  - type: \"sandbox\" (detached HEAD, disposable) | \"experiment\" (named branch, lifecycle-managed)\n  - name: identifier for the workspace\n  - from: optional source branch (default: current)\n- **list** → List all active workspaces and experiments with status\n- **status** → Detailed status of a specific workspace\n- **lock** → Lock an experiment as ready for review (mark status=\"ready\")\n- **compare** → Compare multiple experiments via seja.council.compare_experiments()\n  - names: array of experiment names\n- **merge** → Merge a completed experiment into main\n  - name: experiment to merge\n- **discard** → Discard a workspace or experiment\n  - name: workspace to discard\n\n## Workflow\n1. seja.project.detect() → identify project\n2. Validate action against experiment FSM:\n   - create → experiment must not already exist\n   - merge → experiment must be \"ready\" (locked)\n   - discard → experiment must not be \"merged\"\n3. Execute requested action via git worktree management\n4. Record in seja.experiments.* tools when applicable\n\n## Command\n$ARGUMENTS"
+}

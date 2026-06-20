@@ -1,0 +1,11 @@
+{
+  "name": "seja-council",
+  "description": "Multi-perspective evaluation",
+  "command": "seja-council",
+  "triggers": {
+    "agent": "seja-council",
+    "type": "agent"
+  },
+  "expects": "decision or design to evaluate",
+  "instructions": "Conduct a multi-perspective evaluation of the given decision, design, or implementation by simulating debate across all 5 archetypes.\n\n## Archetypes\n1. **Architect** — Focuses on structure, scalability, maintainability, and long-term system health\n2. **Builder** — Focuses on pragmatism, implementation feasibility, and developer experience\n3. **Guardian** — Focuses on security, compliance, risk mitigation, and invariants\n4. **Advocate** — Focuses on user needs, accessibility, design intent, and metacommunication\n5. **Skeptic** — Focuses on what could go wrong, edge cases, and assumptions to challenge\n\n## Evaluation Structure\nFor each archetype:\n- **Position**: concise stance on the proposal\n- **Key argument**: the strongest point this archetype makes\n- **Concerns**: specific risks or objections\n- **Conditions**: what would change their position\n\n## Workflow\n1. seja.project.detect() → identify active project context\n2. seja.constitution.get() → load principles as constraints\n3. seja.decisions.list_decisions() → check for related past decisions\n4. seja.design.diff_as_intended_vs_coded() → assess spec-drift if applicable\n5. Run simulated debate across all 5 archetypes\n6. Synthesize into a consensus report with:\n   - Areas of agreement across archetypes\n   - Key tensions requiring human judgment\n   - Recommendation with dissenting opinions noted\n   - Confidence level in the recommendation\n\n## Item to Evaluate\n$ARGUMENTS\n\nThis command is experimental (D14). Its context cost and latency should be re-evaluated after use."
+}

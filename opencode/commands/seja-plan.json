@@ -1,0 +1,11 @@
+{
+  "name": "seja-plan",
+  "description": "Decompose current task into executable steps",
+  "command": "seja-plan",
+  "triggers": {
+    "agent": "seja-planner",
+    "type": "agent"
+  },
+  "expects": "task description from user",
+  "instructions": "Decompose the following task into executable, ordered steps.\n\n## Workflow\n1. seja.project.detect() → identify active project and workspace\n2. seja.constitution.get() → load principles BEFORE planning\n3. seja.design.get_global_metacomm() → understand design intent\n4. seja.lifecycle.get_current_phase() → validate current FSM phase allows planning\n5. seja.perspectives.get_for_plan(plan_prefix) → load relevant perspectives for this plan type\n6. seja.plans.get_last_approved_plan() → review previous plan for context continuity\n\n## Output Format\nProduce a structured plan with:\n- **Plan ID**: unique identifier\n- **Feature scope**: which feature(s) this plan addresses\n- **Steps**: numbered, each with:\n  - title (clear, action-oriented)\n  - files to modify (or \"new\")\n  - verify criteria (how to confirm the step is done)\n  - tests required\n  - docs to update\n  - dependencies on other steps\n- **Perspectives applied**: which perspectives were considered\n- **Risks**: identified edge cases and mitigations\n\nAfter drafting the plan, delegate to @seja-plan-reviewer for review before approval.\n\n## User Task\n$ARGUMENTS"
+}

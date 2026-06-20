@@ -1,0 +1,36 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+        threshold: 5%
+        flags:
+          - unit
+          - integration
+          - invariants
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+    changes:
+      default:
+        flags:
+          - unit
+          - integration
+          - invariants
+
+flags:
+  unit:
+    paths:
+      - mcp/
+  integration:
+    paths:
+      - mcp/
+  invariants:
+    paths:
+      - mcp/
+      - tests/invariants/
+
+ignore:
+  - "**/__pycache__/**"
+  - "**/*.pyc"

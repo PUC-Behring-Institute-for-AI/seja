@@ -1,0 +1,2343 @@
+#!/usr/bin/env bash
+#
+# SEJA — Semiotic Engineering Journeys with Agents
+# CLI Harness v2.1.0
+# Optimized over OpenCode + Docker
+#
+# This script is self-sufficient: embed all subcommands, the docker-compose.yml
+# template, and cosign verification logic. The only distributed artifact.
+#
+# https://github.com/org/seja
+
+set -euo pipefail
+IFS=$'\n\t'
+
+# ──────────────────────────────────────────────
+# Metadata
+# ──────────────────────────────────────────────
+SEJA_SCRIPT_VERSION="2.1.0"
+SEJA_SEJA_DIR="${HOME}/.seja"
+SEJA_ENV_FILE="${SEJA_SEJA_DIR}/.env"
+SEJA_WORKSPACES_CONF="${SEJA_SEJA_DIR}/workspaces.conf"
+SEJA_COMPOSE_FILE="${SEJA_SEJA_DIR}/docker-compose.yml"
+SEJA_COMPOSE_OVERRIDE="${SEJA_SEJA_DIR}/docker-compose.override.yml"
+SEJA_WORKSPACE_DIR="${SEJA_SEJA_DIR}/workspace"
+SEJA_BACKUP_DIR="${SEJA_SEJA_DIR}/backups"
+SEJA_LITESTREAM_DIR="${SEJA_BACKUP_DIR}/litestream"
+SEJA_TMP_DIR="${SEJA_SEJA_DIR}/tmp"
+SEJA_COSIGN_PUB="${SEJA_SEJA_DIR}/cosign.pub"
+SEJA_LOGS_DIR="${SEJA_SEJA_DIR}/logs"
+SEJA_DOCKER_CONFIG_DIR="${SEJA_SEJA_DIR}/.docker-config"
+
+# ──────────────────────────────────────────────
+# Color output
+# ──────────────────────────────────────────────
+if [[ -t 1 ]] && [[ "${TERM:-}" != "" ]] && command -v tput &>/dev/null; then
+  C_RESET="$(tput sgr0)"
+  C_BOLD="$(tput bold)"
+  C_RED="$(tput setaf 1)"
+  C_GREEN="$(tput setaf 2)"
+  C_YELLOW="$(tput setaf 3)"
+  C_CYAN="$(tput setaf 6)"
+  C_GREY="$(tput setaf 8)"
+else
+  C_RESET=""; C_BOLD=""; C_RED=""; C_GREEN=""; C_YELLOW=""; C_CYAN=""; C_GREY=""
+fi
+
+log_ok()   { echo "${C_GREEN}✓${C_RESET} $*"; }
+log_err()  { echo "${C_RED}✗${C_RESET} $*" >&2; }
+log_warn() { echo "${C_YELLOW}⚠${C_RESET} $*"; }
+log_info() { echo "${C_CYAN}ℹ${C_RESET} $*"; }
+log_debug(){ echo "${C_GREY}‧${C_RESET} $*"; }
+
+# ──────────────────────────────────────────────
+# Error handling
+# ──────────────────────────────────────────────
+trap_cleanup() {
+  local rc=$?
+  if [[ $rc -ne 0 ]]; then
+    log_err "seja: command failed with exit code ${rc}"
+  fi
+  return $rc
+}
+trap trap_cleanup EXIT
+
+# ──────────────────────────────────────────────
+# Load config
+# ──────────────────────────────────────────────
+load_config() {
+  if [[ -f "${SEJA_ENV_FILE}" ]]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "${SEJA_ENV_FILE}"
+    set +a
+  fi
+}
+
+load_config
+
+# Defaults
+SEJA_IMAGE="${SEJA_IMAGE:-ghcr.io/org/seja:latest}"
+SEJA_CONTAINER_NAME="${SEJA_CONTAINER_NAME:-seja}"
+SEJA_OPENCODE_HOST_PORT="${SEJA_OPENCODE_HOST_PORT:-4096}"
+SEJA_MCP_PORT="${SEJA_MCP_PORT:-8765}"
+SEJA_PROXY_PORT="${SEJA_PROXY_PORT:-4443}"
+OMNITOOLS_HOST_PORT="${OMNITOOLS_HOST_PORT:-7654}"
+SEJA_TIER_REASON="${SEJA_TIER_REASON:-anthropic/claude-opus-4-5}"
+SEJA_TIER_CODE="${SEJA_TIER_CODE:-anthropic/claude-sonnet-4-5}"
+SEJA_TIER_FAST="${SEJA_TIER_FAST:-anthropic/claude-haiku-4-5}"
+SEJA_BACKUP_S3_BUCKET="${SEJA_BACKUP_S3_BUCKET:-}"
+SEJA_BACKUP_S3_REGION="${SEJA_BACKUP_S3_REGION:-us-east-1}"
+SEJA_WORKSPACE_DIR="${SEJA_WORKSPACE_DIR:-$SEJA_SEJA_DIR/workspace}"
+OPENCODE_CONFIG_REPO="${OPENCODE_CONFIG_REPO:-}"
+OPENCODE_CONFIG_BRANCH="${OPENCODE_CONFIG_BRANCH:-main}"
+OPENCODE_ACCESS_TOKEN="${OPENCODE_ACCESS_TOKEN:-}"
+OMNITOOLS_ENABLED="${OMNITOOLS_ENABLED:-true}"
+
+# ──────────────────────────────────────────────
+# Helper functions
+# ──────────────────────────────────────────────
+
+# Find project root by walking up from CWD looking for docker-compose.yml
+find_project_root() {
+  local dir="${1:-$(pwd)}"
+  local dir_real
+  dir_real="$(cd "${dir}" 2>/dev/null && pwd)" || return 1
+  while [[ "${dir_real}" != "/" ]]; do
+    if [[ -f "${dir_real}/.seja/constitution.md" ]]; then
+      echo "${dir_real}"
+      return 0
+    fi
+    dir_real="$(dirname "${dir_real}")"
+  done
+  # Fallback to CWD
+  pwd
+  return 0
+}
+
+# Get version from git tag or Docker
+get_version() {
+  local ver="${SEJA_SCRIPT_VERSION}"
+  if command -v git &>/dev/null; then
+    local git_ver
+    git_ver="$(git describe --tags --always --dirty 2>/dev/null)" && ver="${git_ver}"
+  fi
+  echo "${ver}"
+}
+
+# Require a command to exist
+require_cmd() {
+  if ! command -v "$1" &>/dev/null; then
+    log_err "Required command not found: $1"
+    if [[ "$1" == "docker" ]]; then
+      log_err "Install Docker: https://docs.docker.com/get-docker/"
+    fi
+    exit 1
+  fi
+}
+
+# Require Docker running
+require_docker() {
+  require_cmd "docker"
+  if ! docker info &>/dev/null; then
+    log_err "Docker daemon is not running."
+    log_info "Start Docker and try again."
+    exit 1
+  fi
+}
+
+# Docker compose wrapper (uses the project's compose file)
+docker_compose() {
+  require_docker
+  docker compose \
+    --project-name "seja" \
+    --file "${SEJA_COMPOSE_FILE}" \
+    "${@}"
+}
+
+# Check if the SEJA container is running
+container_running() {
+  local name="${1:-${SEJA_CONTAINER_NAME}}"
+  docker inspect -f '{{.State.Running}}' "${name}" 2>/dev/null | grep -q "true"
+}
+
+# Wait for container health
+wait_health() {
+  local container="${1:-${SEJA_CONTAINER_NAME}}"
+  local timeout="${2:-60}"
+  local interval="${3:-5}"
+  log_info "Waiting for ${container} to become healthy (timeout: ${timeout}s)..."
+  local elapsed=0
+  while [[ ${elapsed} -lt ${timeout} ]]; do
+    if container_running "${container}"; then
+      local status
+      status="$(docker inspect -f '{{.State.Health.Status}}' "${container}" 2>/dev/null || echo "starting")"
+      if [[ "${status}" == "healthy" ]]; then
+        log_ok "${container} is healthy"
+        return 0
+      fi
+    fi
+    sleep "${interval}"
+    elapsed=$((elapsed + interval))
+  done
+  log_err "Timeout waiting for ${container} to become healthy"
+  return 1
+}
+
+# Check if ghcr login is needed
+ensure_ghcr_login() {
+  local image="${1:-${SEJA_IMAGE}}"
+  if [[ "${image}" != ghcr.io/* ]]; then
+    return 0
+  fi
+  # Check if already logged in
+  if docker system info 2>/dev/null | grep -q "ghcr.io"; then
+    return 0
+  fi
+  if [[ -f "${HOME}/.secrets/github-token" ]]; then
+    local token
+    token="$(cat "${HOME}/.secrets/github-token")"
+    echo "${token}" | docker login ghcr.io -u "${USER}" --password-stdin 2>/dev/null && return 0
+  fi
+  log_warn "Not logged into ghcr.io. Try: docker login ghcr.io"
+  return 1
+}
+
+# Generate a short hash
+short_hash() {
+  date +%s | sha256sum | head -c 6
+}
+
+# JSON output helper
+emit_json() {
+  # shellcheck disable=SC2317
+  echo "$1"
+}
+
+# ──────────────────────────────────────────────
+# Docker Compose template (embedded heredoc)
+# ──────────────────────────────────────────────
+generate_compose_file() {
+  cat > "${SEJA_COMPOSE_FILE}" << 'COMPOSE_EOF'
+version: "3.9"
+services:
+  seja:
+    image: ${SEJA_IMAGE}
+    container_name: ${SEJA_CONTAINER_NAME:-seja}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${SEJA_OPENCODE_HOST_PORT:-4096}:4096"
+      - "${SEJA_PROXY_PORT:-4443}:4443"
+      - "${OMNITOOLS_HOST_PORT:-7654}:7654"
+    volumes:
+      - seja-state:/root/.seja-state
+      - seja-config:/root/.config/opencode
+      - socket-proxy:/tmp/docker.sock:ro
+      - litestream-data:/var/lib/litestream
+      - ${HOME}/.secrets:/run/secrets:ro
+    environment:
+      DOCKER_HOST: "unix:///tmp/docker.sock"
+    env_file:
+      - ${SEJA_SEJA_DIR}/.env
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4096/global/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    depends_on:
+      socket-proxy:
+        condition: service_started
+      litestream:
+        condition: service_started
+
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: seja-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      VOLUMES: 1
+      INFO: 1
+      EXEC: 0
+      AUTH: 0
+      SECRETS: 0
+      POST: 0
+      BUILD: 0
+      COMMIT: 0
+      CONFIGS: 0
+      DISTRIBUTION: 0
+      IMAGES: 0
+      NETWORKS: 0
+      NODES: 0
+      PLUGINS: 0
+      SERVICES: 0
+      SESSION: 0
+      SWARM: 0
+      TASKS: 0
+
+  litestream:
+    image: litestream/litestream:latest
+    container_name: seja-litestream
+    restart: unless-stopped
+    volumes:
+      - seja-state:/data/seja-state:ro
+      - litestream-data:/data/replica
+      - ${SEJA_LITESTREAM_DIR}:/backups
+    environment:
+      LITESTREAM_ACCESS_KEY_ID: "${SEJA_BACKUP_S3_KEY_ID:-}"
+      LITESTREAM_SECRET_ACCESS_KEY: "${SEJA_BACKUP_S3_SECRET:-}"
+    command:
+      - "replicate"
+      - "/data/seja-state/seja.db"
+    healthcheck:
+      test: ["CMD", "litestream", "databases"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+volumes:
+  seja-state:
+  seja-config:
+  litestream-data:
+  socket-proxy:
+COMPOSE_EOF
+}
+
+# ──────────────────────────────────────────────
+# SUBCOMMANDS
+# ──────────────────────────────────────────────
+
+# ── setup ─────────────────────────────────────
+cmd_setup() {
+  local dry_run=false
+  local no_pull=false
+  local setup_image=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dry-run) dry_run=true; shift ;;
+      --no-pull) no_pull=true; shift ;;
+      --image) setup_image="$2"; shift 2 ;;
+      --image=*) setup_image="${1#*=}"; shift ;;
+      *) log_err "Unknown setup option: $1"; exit 1 ;;
+    esac
+  done
+
+  if [[ -n "${setup_image}" ]]; then
+    SEJA_IMAGE="${setup_image}"
+  fi
+
+  if ${dry_run}; then
+    log_info "DRY RUN: Would create SEJA directory structure at ${SEJA_SEJA_DIR}"
+    log_info "Would create directories:"
+    echo "  ${SEJA_SEJA_DIR}/"
+    echo "  ${SEJA_SEJA_DIR}/workspace/"
+    echo "  ${SEJA_SEJA_DIR}/backups/litestream/"
+    echo "  ${SEJA_SEJA_DIR}/tmp/"
+    echo "  ${SEJA_SEJA_DIR}/logs/"
+    echo "  ${SEJA_SEJA_DIR}/.docker-config/"
+    echo ""
+    echo "  Would write: ${SEJA_ENV_FILE}"
+    echo "  Would write: ${SEJA_COMPOSE_FILE}"
+    echo "  Would copy:  cosign.pub"
+    log_info "DRY RUN complete. No changes made."
+    return 0
+  fi
+
+  # Check if directory exists and prompt for action
+  if [[ -d "${SEJA_SEJA_DIR}" ]]; then
+    echo ""
+    log_warn "${SEJA_SEJA_DIR} already exists."
+    echo "  [1] Update configuration (preserves workspaces, volumes, .env)"
+    echo "  [2] Reinitialize completely (DESTROYS ~/.seja/ — Docker volumes preserved)"
+    echo "  [3] Validate integrity"
+    echo "  [4] Cancel"
+    echo ""
+    read -rp "Choose [1-4]: " setup_choice </dev/tty
+    case "${setup_choice}" in
+      1)
+        log_info "Updating configuration..."
+        update_config=true
+        ;;
+      2)
+        log_warn "Reinitializing ~/.seja/..."
+        rm -rf "${SEJA_SEJA_DIR}"
+        update_config=false
+        ;;
+      3)
+        cmd_verify
+        return $?
+        ;;
+      *)
+        log_info "Setup cancelled."
+        return 0
+        ;;
+    esac
+  else
+    update_config=false
+  fi
+
+  mkdir -p "${SEJA_SEJA_DIR}"
+  mkdir -p "${SEJA_WORKSPACE_DIR}"
+  mkdir -p "${SEJA_BACKUP_DIR}"
+  mkdir -p "${SEJA_LITESTREAM_DIR}"
+  mkdir -p "${SEJA_TMP_DIR}"
+  mkdir -p "${SEJA_LOGS_DIR}"
+  mkdir -p "${SEJA_DOCKER_CONFIG_DIR}"
+
+  log_ok "Created ~/.seja/ directory structure"
+
+  # Create .env
+  if [[ ! -f "${SEJA_ENV_FILE}" ]] || [[ "${update_config}" == "true" ]]; then
+    if [[ "${update_config}" != "true" ]]; then
+      echo ""
+      log_info "Configuring SEJA runtime..."
+      echo ""
+
+      read -rp "SEJA image [${SEJA_IMAGE}]: " input_img </dev/tty
+      SEJA_IMAGE="${input_img:-${SEJA_IMAGE}}"
+
+      read -rp "GitHub token (optional, for ghcr.io pull): " SEJA_GITHUB_TOKEN </dev/tty
+
+      read -rp "OpenCode config repo (optional): " input_config_repo </dev/tty
+      OPENCODE_CONFIG_REPO="${input_config_repo:-${OPENCODE_CONFIG_REPO}}"
+
+      read -rp "S3 bucket for Litestream backups (optional): " input_s3 </dev/tty
+
+    if [[ -n "${SEJA_GITHUB_TOKEN}" ]]; then
+      mkdir -p "${HOME}/.secrets"
+      echo "${SEJA_GITHUB_TOKEN}" > "${HOME}/.secrets/github-token"
+      chmod 600 "${HOME}/.secrets/github-token"
+    fi
+      SEJA_BACKUP_S3_BUCKET="${input_s3:-${SEJA_BACKUP_S3_BUCKET}}"
+    fi
+
+    cat > "${SEJA_ENV_FILE}" << ENVEOF
+# SEJA Runtime Configuration
+# Generated by seja setup
+SEJA_IMAGE=${SEJA_IMAGE}
+SEJA_CONTAINER_NAME=${SEJA_CONTAINER_NAME}
+SEJA_OPENCODE_HOST_PORT=${SEJA_OPENCODE_HOST_PORT}
+SEJA_MCP_PORT=${SEJA_MCP_PORT}
+SEJA_PROXY_PORT=${SEJA_PROXY_PORT}
+OMNITOOLS_HOST_PORT=${OMNITOOLS_HOST_PORT}
+SEJA_TIER_REASON=${SEJA_TIER_REASON}
+SEJA_TIER_CODE=${SEJA_TIER_CODE}
+SEJA_TIER_FAST=${SEJA_TIER_FAST}
+OMNITOOLS_ENABLED=${OMNITOOLS_ENABLED}
+SEJA_BACKUP_S3_BUCKET=${SEJA_BACKUP_S3_BUCKET}
+SEJA_BACKUP_S3_REGION=${SEJA_BACKUP_S3_REGION}
+OPENCODE_CONFIG_REPO=${OPENCODE_CONFIG_REPO}
+OPENCODE_CONFIG_BRANCH=${OPENCODE_CONFIG_BRANCH}
+SEJA_WORKSPACE_DIR=${SEJA_WORKSPACE_DIR}
+ENVEOF
+    log_ok "Created ${SEJA_ENV_FILE}"
+  fi
+
+  # Reload config
+  load_config
+
+  # Generate docker-compose.yml
+  generate_compose_file
+  log_ok "Created ${SEJA_COMPOSE_FILE}"
+
+  # Create empty workspaces.conf
+  if [[ ! -f "${SEJA_WORKSPACES_CONF}" ]]; then
+    touch "${SEJA_WORKSPACES_CONF}"
+  fi
+
+  # Create empty override file
+  if [[ ! -f "${SEJA_COMPOSE_OVERRIDE}" ]]; then
+    {
+      echo "version: \"3.9\""
+      echo "services:"
+      echo "  ${SEJA_CONTAINER_NAME}:"
+      echo "    volumes: []"
+    } > "${SEJA_COMPOSE_OVERRIDE}"
+  fi
+
+  # Copy cosign.pub from image if possible
+  if ! ${no_pull}; then
+    if require_docker 2>/dev/null; then
+      ensure_ghcr_login "${SEJA_IMAGE}" 2>/dev/null || true
+      if docker pull "${SEJA_IMAGE}" &>/dev/null; then
+        local container_id
+        container_id="$(docker create "${SEJA_IMAGE}" 2>/dev/null || true)"
+        if [[ -n "${container_id}" ]]; then
+          docker cp "${container_id}:/opt/seja/security/cosign.pub" "${SEJA_COSIGN_PUB}" 2>/dev/null || true
+          docker rm "${container_id}" &>/dev/null || true
+        fi
+      fi
+    fi
+  fi
+
+  # Download cosign.pub from GitHub releases as fallback
+  if [[ ! -f "${SEJA_COSIGN_PUB}" ]]; then
+    curl -fsSL "https://github.com/org/seja/releases/latest/download/cosign.pub" \
+      -o "${SEJA_COSIGN_PUB}" 2>/dev/null || true
+  fi
+
+  if [[ -f "${SEJA_COSIGN_PUB}" ]]; then
+    log_ok "cosign public key ready"
+  fi
+
+  echo ""
+  log_ok "SEJA ready at ${SEJA_SEJA_DIR}/"
+  echo ""
+  log_info "Next steps:"
+  log_info "  seja workspace add ~/projects/my-project"
+  log_info "  seja start"
+  log_info "  seja init [path]"
+  echo ""
+}
+
+# ── init ──────────────────────────────────────
+cmd_init() {
+  local target_path="${1:-$(pwd)}"
+  target_path="$(cd "${target_path}" 2>/dev/null && pwd)" || {
+    log_err "Invalid path: ${target_path}"
+    exit 1
+  }
+
+  local seja_dir="${target_path}/.seja"
+
+  if [[ -d "${seja_dir}" ]]; then
+    log_warn "${seja_dir} already exists"
+    echo ""
+    read -rp "Reinitialize? This will NOT remove existing files. Continue? [y/N] " confirm </dev/tty
+    [[ "${confirm}" =~ ^[yY] ]] || { log_info "Aborted."; return 0; }
+  fi
+
+  mkdir -p "${seja_dir}"
+  mkdir -p "${seja_dir}/decisions"
+  mkdir -p "${seja_dir}/designs"
+  mkdir -p "${seja_dir}/plans"
+  mkdir -p "${seja_dir}/research"
+  mkdir -p "${seja_dir}/perspectives"
+  mkdir -p "${seja_dir}/journeys"
+  mkdir -p "${seja_dir}/experiments"
+  mkdir -p "${seja_dir}/tests"
+  mkdir -p "${seja_dir}/briefs"
+  mkdir -p "${seja_dir}/_output/telemetry"
+  mkdir -p "${seja_dir}/_output/reflections"
+  mkdir -p "${seja_dir}/_output/communications"
+
+  # Create default constitution.md if it does not exist
+  if [[ ! -f "${seja_dir}/constitution.md" ]]; then
+    cat > "${seja_dir}/constitution.md" << 'CONSTEOF'
+# Constitution
+
+## Technical Principles
+
+| ID | Principle | Rationale |
+|----|-----------|-----------|
+| T1 | | |
+
+## Quality Principles
+
+| ID | Principle | Rationale |
+|----|-----------|-----------|
+| Q1 | | |
+CONSTEOF
+  fi
+
+  if [[ ! -f "${seja_dir}/conventions.md" ]]; then
+    touch "${seja_dir}/conventions.md"
+  fi
+
+  if [[ ! -f "${seja_dir}/product-design-as-intended.md" ]]; then
+    cat > "${seja_dir}/product-design-as-intended.md" << 'INTEOF'
+# Product Design — As Intended
+
+## Global Metacommunication
+[State the overall design intent here]
+
+## Features
+| ID | Name | Metacommunication | Priority |
+|----|------|-------------------|----------|
+| F1 | | | P2 |
+INTEOF
+  fi
+
+  if [[ ! -f "${seja_dir}/product-design-as-coded.md" ]]; then
+    cat > "${seja_dir}/product-design-as-coded.md" << 'CODEOF'
+# Product Design — As Coded
+
+| Feature ID | Status | Notes |
+|------------|--------|-------|
+| F1 | not_implemented | |
+CODEOF
+  fi
+
+  log_ok "Initialized SEJA project at ${target_path}"
+  log_info "Created: .seja/ with constitution, conventions, design files"
+  log_info "Created: decisions/, designs/, plans/, research/, perspectives/,"
+  log_info "         journeys/, experiments/, tests/, briefs/"
+}
+
+# ── status ────────────────────────────────────
+cmd_status() {
+  local json_output=false
+  [[ "${1:-}" == "--json" ]] && json_output=true
+
+  if ${json_output}; then
+    if require_docker 2>/dev/null; then
+      local containers
+      containers="$(docker ps --format json 2>/dev/null | tr '\n' ',' | sed 's/,$//')"
+      [[ -n "${containers}" ]] && containers="[${containers}]" || containers="[]"
+    else
+      containers="[]"
+    fi
+
+    local mcp_health="unavailable"
+    if container_running; then
+      mcp_health="$(docker exec "${SEJA_CONTAINER_NAME}" curl -sf http://localhost:8765/health 2>/dev/null || echo "unhealthy")"
+    fi
+
+    local version
+    version="$(get_version)"
+
+    local last_backup=""
+    local -a db_files=()
+    while IFS= read -r -d '' f; do
+      db_files+=("$f")
+    done < <(find "${SEJA_LITESTREAM_DIR}" -maxdepth 1 -name '*.db' -print0 2>/dev/null || true)
+    if [[ ${#db_files[@]} -gt 0 ]]; then
+      last_backup="${db_files[0]}"
+    fi
+
+    emit_json "{\"containers\":${containers},\"mcp_health\":\"${mcp_health}\",\"version\":\"${version}\",\"last_backup\":\"${last_backup}\",\"seja_dir\":\"${SEJA_SEJA_DIR}\"}"
+    return 0
+  fi
+
+  echo ""
+  echo "${C_BOLD}SEJA Status${C_RESET}"
+  echo "${C_GREY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo ""
+
+  # Container status
+  echo "${C_BOLD}Containers:${C_RESET}"
+  if require_docker 2>/dev/null; then
+    local containers
+    containers="$(docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null | grep -E '^(seja|NAMES)')" || containers="(none running)"
+    echo "${containers}"
+  else
+    echo "  ${C_RED}Docker not available${C_RESET}"
+  fi
+  echo ""
+
+  # MCP health
+  echo "${C_BOLD}MCP Health:${C_RESET}"
+  if container_running; then
+    local health
+    health="$(docker exec "${SEJA_CONTAINER_NAME}" curl -sf http://localhost:8765/health 2>/dev/null || echo "unhealthy")"
+    if [[ "${health}" == *"healthy"* ]]; then
+      echo "  ${C_GREEN}healthy${C_RESET}"
+    elif [[ "${health}" == "unhealthy" ]]; then
+      echo "  ${C_RED}unhealthy${C_RESET}"
+    else
+      echo "  ${C_YELLOW}${health}${C_RESET}"
+    fi
+  else
+    echo "  ${C_YELLOW}container not running${C_RESET}"
+  fi
+  echo ""
+
+  # Workspace info
+  echo "${C_BOLD}Workspace:${C_RESET}"
+  echo "  Dir: ${SEJA_SEJA_DIR}"
+  if [[ -f "${SEJA_WORKSPACES_CONF}" ]]; then
+    local count
+    count="$(wc -l < "${SEJA_WORKSPACES_CONF}" 2>/dev/null || echo 0)"
+    echo "  Active workspaces: ${count}"
+  fi
+  echo ""
+
+  # Version
+  echo "${C_BOLD}Version:${C_RESET}"
+  echo "  Script: $(get_version)"
+  echo ""
+
+  # Last backup
+  echo "${C_BOLD}Last Backup:${C_RESET}"
+  local -a db_files=()
+  while IFS= read -r -d '' f; do
+    db_files+=("$f")
+  done < <(find "${SEJA_LITESTREAM_DIR}" -maxdepth 1 -name '*.db' -print0 2>/dev/null || true)
+  if [[ ${#db_files[@]} -gt 0 ]]; then
+    local latest="${db_files[0]}"
+    echo "  $(basename "${latest}") ($(stat -f '%Sm' "${latest}" 2>/dev/null || stat -c '%y' "${latest}" 2>/dev/null))"
+  else
+    echo "  ${C_YELLOW}no backups found${C_RESET}"
+  fi
+  echo ""
+}
+
+# ── start ─────────────────────────────────────
+cmd_start() {
+  require_docker
+
+  if ! [[ -f "${SEJA_COMPOSE_FILE}" ]]; then
+    log_err "No docker-compose.yml found. Run 'seja setup' first."
+    exit 1
+  fi
+
+  # Ensure override file exists
+  if [[ ! -f "${SEJA_COMPOSE_OVERRIDE}" ]]; then
+    {
+      echo "version: \"3.9\""
+      echo "services:"
+      echo "  ${SEJA_CONTAINER_NAME}:"
+      echo "    volumes: []"
+    } > "${SEJA_COMPOSE_OVERRIDE}"
+  fi
+
+  log_info "Starting SEJA services..."
+  docker_compose up -d
+
+  # Add workspace override if present
+  if [[ -f "${SEJA_COMPOSE_OVERRIDE}" ]]; then
+    if grep -q "volumes:" "${SEJA_COMPOSE_OVERRIDE}" 2>/dev/null; then
+      docker compose \
+        --project-name "seja" \
+        --file "${SEJA_COMPOSE_FILE}" \
+        --file "${SEJA_COMPOSE_OVERRIDE}" \
+        up -d --no-recreate 2>/dev/null || true
+    fi
+  fi
+
+  wait_health "${SEJA_CONTAINER_NAME}" 120 10
+  log_ok "SEJA is running"
+}
+
+# ── stop ──────────────────────────────────────
+cmd_stop() {
+  require_docker
+  log_info "Stopping SEJA services..."
+  docker_compose down
+  log_ok "SEJA stopped"
+}
+
+# ── restart ───────────────────────────────────
+cmd_restart() {
+  cmd_stop
+  cmd_start
+}
+
+# ── logs ──────────────────────────────────────
+cmd_logs() {
+  require_docker
+  local service=""
+  local tail_n=""
+  local follow=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --tail) tail_n="$2"; shift 2 ;;
+      --tail=*) tail_n="${1#*=}"; shift ;;
+      --follow|-f) follow=true; shift ;;
+      -*)
+        # Pass through unknown flags to docker compose
+        set -- "$@" "$1"
+        shift
+        ;;
+      *)
+        if [[ -z "${service}" ]]; then
+          service="$1"
+        else
+          set -- "$@" "$1"
+        fi
+        shift
+        ;;
+    esac
+  done
+
+  local args=()
+  if [[ -n "${tail_n}" ]]; then
+    args+=(--tail "${tail_n}")
+  fi
+  if ${follow}; then
+    args+=(-f)
+  fi
+  if [[ -n "${service}" ]]; then
+    args+=("${service}")
+  fi
+
+  docker_compose logs "${args[@]}"
+}
+
+# ── shell ─────────────────────────────────────
+cmd_shell() {
+  require_docker
+  local service="${1:-${SEJA_CONTAINER_NAME}}"
+
+  if ! container_running "${service}"; then
+    log_err "Container '${service}' is not running"
+    exit 1
+  fi
+
+  docker exec -it "${service}" /bin/bash
+}
+
+# ── exec ──────────────────────────────────────
+cmd_exec() {
+  require_docker
+
+  if ! container_running; then
+    log_err "Container '${SEJA_CONTAINER_NAME}' is not running"
+    exit 1
+  fi
+
+  if [[ $# -eq 0 ]]; then
+    log_err "Usage: seja exec <command>"
+    exit 1
+  fi
+
+  docker exec -it "${SEJA_CONTAINER_NAME}" "$@"
+}
+
+# ── update ────────────────────────────────────
+cmd_update() {
+  local check_only=false
+
+  [[ "${1:-}" == "--check" ]] && check_only=true
+
+  require_docker
+
+  if ! [[ -f "${SEJA_COMPOSE_FILE}" ]]; then
+    log_err "No setup found. Run 'seja setup' first."
+    exit 1
+  fi
+
+  ensure_ghcr_login "${SEJA_IMAGE}" || true
+
+  # Cosign verify the current image
+  log_info "Verifying image signature..."
+  if command -v cosign &>/dev/null && [[ -f "${SEJA_COSIGN_PUB}" ]]; then
+    if cosign verify \
+      --key "${SEJA_COSIGN_PUB}" \
+      "${SEJA_IMAGE}" &>/dev/null; then
+      log_ok "Image signature verified"
+    else
+      log_err "Image signature verification failed"
+      log_info "To skip verification, use the --no-verify flag (not yet implemented)"
+      exit 1
+    fi
+  else
+    log_warn "cosign not available or public key missing. Skipping signature verification."
+  fi
+
+  if ${check_only}; then
+    log_info "Update check passed. Image ${SEJA_IMAGE} is verified."
+    return 0
+  fi
+
+  # Pull latest image
+  log_info "Pulling latest image..."
+  if ! docker pull "${SEJA_IMAGE}"; then
+    log_err "Failed to pull image. Aborting update."
+    exit 1
+  fi
+  log_ok "Image pulled"
+
+  # Extract script from image
+  log_info "Extracting artifacts from image..."
+  local container_id
+  container_id="$(docker create "${SEJA_IMAGE}" 2>/dev/null)" || {
+    log_err "Failed to create temporary container from image"
+    exit 1
+  }
+
+  local tmp_script
+  tmp_script="$(mktemp "${SEJA_TMP_DIR}/seja-update.XXXXXX")"
+  local tmp_compose
+  tmp_compose="$(mktemp "${SEJA_TMP_DIR}/compose-update.XXXXXX")"
+
+  # Try to extract the script
+  if docker cp "${container_id}:/usr/local/bin/seja-script" "${tmp_script}" &>/dev/null; then
+    local current_sha=""
+    local new_sha=""
+    current_sha="$(sha256sum "$0" | cut -d' ' -f1 2>/dev/null || echo "")"
+    new_sha="$(sha256sum "${tmp_script}" | cut -d' ' -f1 2>/dev/null || echo "")"
+
+    if [[ "${current_sha}" != "${new_sha}" ]]; then
+      # Backup current script
+      local backup_name
+      backup_name="${SEJA_BACKUP_DIR}/seja.${current_sha:0:8}"
+      cp "$0" "${backup_name}"
+      log_ok "Backup saved: ${backup_name}"
+
+      # Replace script atomically
+      chmod +x "${tmp_script}"
+      mv "${tmp_script}" "$0"
+      log_ok "Script updated to new version"
+
+      # Clean up old backups (keep last 5)
+      local -a backups=()
+      while IFS= read -r -d '' f; do
+        backups+=("$f")
+      done < <(find "${SEJA_BACKUP_DIR}" -maxdepth 1 -name 'seja.*' -print0 2>/dev/null || true)
+      if [[ ${#backups[@]} -gt 5 ]]; then
+        local i
+        for ((i=5; i<${#backups[@]}; i++)); do
+          rm -f "${backups[$i]}"
+        done
+      fi
+    else
+      log_info "Script is already up to date"
+      rm -f "${tmp_script}"
+    fi
+  else
+    log_warn "Could not extract seja-script from image (path may differ)"
+    rm -f "${tmp_script}"
+  fi
+
+  # Extract docker-compose.yml
+  if docker cp "${container_id}:/usr/local/share/seja/docker-compose.yml" "${tmp_compose}" &>/dev/null; then
+    local compose_current_sha compose_new_sha
+    compose_current_sha="$(sha256sum "${SEJA_COMPOSE_FILE}" 2>/dev/null | cut -d' ' -f1 || echo "")"
+    compose_new_sha="$(sha256sum "${tmp_compose}" 2>/dev/null | cut -d' ' -f1 || echo "")"
+
+    if [[ "${compose_current_sha}" != "${compose_new_sha}" ]]; then
+      # Validate template has required variables
+      if grep -q "SEJA_IMAGE" "${tmp_compose}" 2>/dev/null; then
+        cp "${tmp_compose}" "${SEJA_COMPOSE_FILE}"
+        log_ok "docker-compose.yml updated"
+      else
+        log_warn "Extracted compose template is invalid, keeping existing"
+      fi
+    else
+      log_info "docker-compose.yml is already up to date"
+    fi
+  else
+    log_warn "Could not extract docker-compose.yml from image"
+  fi
+  rm -f "${tmp_compose}"
+
+  # Cleanup temporary container
+  docker rm "${container_id}" &>/dev/null || true
+
+  # Restart services
+  log_info "Restarting services with updated configuration..."
+  docker_compose down --timeout 30 2>/dev/null || true
+  docker_compose up -d --force-recreate
+  wait_health "${SEJA_CONTAINER_NAME}" 120 10
+  log_ok "Update complete"
+}
+
+# ── version ───────────────────────────────────
+cmd_version() {
+  local version
+  version="$(get_version)"
+  echo "seja v${version}"
+}
+
+# ── help ──────────────────────────────────────
+cmd_help() {
+  local topic="${1:-}"
+
+  if [[ -n "${topic}" ]]; then
+    case "${topic}" in
+      setup)
+        echo "Usage: seja setup [--dry-run] [--no-pull] [--image <image>]"
+        echo ""
+        echo "Initialize ~/.seja/ directory structure, copy project templates."
+        echo ""
+        echo "Options:"
+        echo "  --dry-run    Show what would be done without making changes"
+        echo "  --no-pull    Skip pulling the Docker image"
+        echo "  --image      Specify a custom SEJA image"
+        ;;
+      init)
+        echo "Usage: seja init [path]"
+        echo ""
+        echo "Initialize a new SEJA project at path (or current directory)."
+        echo "Creates .seja/ workspace directories and template files."
+        ;;
+      status)
+        echo "Usage: seja status [--json]"
+        echo ""
+        echo "Show container status, MCP health check, workspace info, version."
+        echo ""
+        echo "Options:"
+        echo "  --json       Output in JSON format for machine parsing"
+        ;;
+      start|stop|restart)
+        echo "Usage: seja ${topic}"
+        echo ""
+        echo "${topic^} the SEJA Docker services."
+        ;;
+      logs)
+        echo "Usage: seja logs [service] [--tail N] [--follow]"
+        echo ""
+        echo "View logs from SEJA services."
+        echo ""
+        echo "Options:"
+        echo "  --tail N     Show last N lines"
+        echo "  --follow,-f  Follow log output"
+        ;;
+      shell)
+        echo "Usage: seja shell [service]"
+        echo ""
+        echo "Open an interactive shell in a running service container."
+        echo "Default service: ${SEJA_CONTAINER_NAME}"
+        ;;
+      exec)
+        echo "Usage: seja exec <command>"
+        echo ""
+        echo "Execute a command inside the SEJA container."
+        ;;
+      update)
+        echo "Usage: seja update [--check]"
+        echo ""
+        echo "Update SEJA to the latest version."
+        echo ""
+        echo "Options:"
+        echo "  --check      Check for updates without applying"
+        ;;
+      workspace)
+        echo "Usage: seja workspace <add|remove|list|sync> [args]"
+        echo ""
+        echo "  add <path>     Add a workspace mount"
+        echo "  remove <path>  Remove a workspace mount"
+        echo "  list           List all workspaces"
+        echo "  sync <path>    Sync markdown from .seja/ to SQLite"
+        ;;
+      config)
+        echo "Usage: seja config <get|set|list|edit> [key] [value]"
+        echo ""
+        echo "  get <key>      Get a configuration value"
+        echo "  set <key> <value>  Set a configuration value"
+        echo "  list           List all configuration"
+        echo "  edit           Edit configuration in \$EDITOR"
+        ;;
+      doctor)
+        echo "Usage: seja doctor"
+        echo ""
+        echo "Run diagnostics: check Docker, MCP health, cosign, git, disk, ports."
+        ;;
+      backup)
+        echo "Usage: seja backup"
+        echo ""
+        echo "Trigger a manual Litestream backup snapshot."
+        ;;
+      restore)
+        echo "Usage: seja restore <snapshot>"
+        echo ""
+        echo "Restore from a Litestream snapshot."
+        ;;
+      verify)
+        echo "Usage: seja verify"
+        echo ""
+        echo "Verify integrity: SQLite pragma integrity_check, cosign key, git worktrees."
+        ;;
+      exp)
+        echo "Usage: seja exp <list|fork|merge|status|discard> [name]"
+        echo ""
+        echo "  list                    List experiments"
+        echo "  fork <name>             Fork an experiment with git worktree"
+        echo "  merge <name>            Merge an experiment back"
+        echo "  status [name]           Show experiment status"
+        echo "  discard <name>          Discard an experiment"
+        ;;
+      inspect)
+        echo "Usage: seja inspect"
+        echo ""
+        echo "Semiotic inspection: analyze project state through a semiotic engineering lens."
+        ;;
+      check)
+        echo "Usage: seja check"
+        echo ""
+        echo "Run all SEJA invariants checks on the current project."
+        ;;
+      sync)
+        echo "Usage: seja sync"
+        echo ""
+        echo "Sync all workspaces: markdown to SQLite."
+        ;;
+      list)
+        echo "Usage: seja list"
+        echo ""
+        echo "List all available commands."
+        ;;
+      completion)
+        echo "Usage: seja completion [bash|zsh]"
+        echo ""
+        echo "Generate shell completion scripts."
+        ;;
+      *)
+        echo "Unknown command: ${topic}"
+        echo "Run 'seja help' for available commands."
+        ;;
+    esac
+    return 0
+  fi
+
+  cat << HELPEOF
+${C_BOLD}SEJA${C_RESET} — Semiotic Engineering Journeys with Agents v$(get_version)
+
+${C_BOLD}Usage:${C_RESET}
+  seja <command> [options] [args]
+
+${C_BOLD}Core Commands:${C_RESET}
+  setup          Initialize ~/.seja/ directory structure and pull image
+  init [path]    Initialize a new SEJA project at path (or CWD)
+  status         Show container status, MCP health, workspace info
+  start          Start SEJA services (docker compose up -d)
+  stop           Stop SEJA services (docker compose down)
+  restart        Restart SEJA services
+  logs           View service logs
+  shell          Open interactive shell in container
+  exec           Execute command in container
+  update         Update SEJA to latest version
+  version        Show version
+  help [cmd]     Show help for a command
+
+${C_BOLD}Workspace Commands:${C_RESET}
+  workspace add <path>     Add a workspace mount
+  workspace remove <path>  Remove a workspace mount
+  workspace list           List all workspaces
+  workspace sync <path>    Sync markdown to SQLite
+
+${C_BOLD}Config Commands:${C_RESET}
+  config get <key>     Get config value
+  config set <key> <value>  Set config value
+  config list          List all config
+  config edit          Edit config in \$EDITOR
+
+${C_BOLD}Admin Commands:${C_RESET}
+  doctor           Run diagnostics
+  backup           Trigger Litestream backup
+  restore <snap>   Restore from Litestream snapshot
+  verify           Verify integrity
+
+${C_BOLD}Experiment Commands:${C_RESET}
+  exp list              List experiments
+  exp fork <name>       Fork experiment with git worktree
+  exp merge <name>      Merge experiment back
+  exp status [name]     Show experiment status
+  exp discard <name>    Discard experiment
+
+${C_BOLD}Special Commands:${C_RESET}
+  inspect          Semiotic inspection of project state
+  check            Run SEJA invariants checks
+  sync             Sync all workspaces
+  list             List available commands
+  completion       Generate shell completion
+
+HELPEOF
+}
+
+# ── workspace ──────────────────────────────────
+cmd_workspace() {
+  local subcmd="${1:-list}"
+  shift 2>/dev/null || true
+
+  case "${subcmd}" in
+    add)
+      local ws_path="${1:-}"
+      if [[ -z "${ws_path}" ]]; then
+        log_err "Usage: seja workspace add <path>"
+        exit 1
+      fi
+      ws_path="$(cd "${ws_path}" 2>/dev/null && pwd)" || {
+        log_err "Invalid path: ${ws_path}"
+        exit 1
+      }
+      local ws_name
+      ws_name="$(basename "${ws_path}")"
+
+      # Register in workspaces.conf
+      if [[ ! -f "${SEJA_WORKSPACES_CONF}" ]]; then
+        touch "${SEJA_WORKSPACES_CONF}"
+      fi
+      if grep -q "^${ws_path}\b" "${SEJA_WORKSPACES_CONF}" 2>/dev/null; then
+        log_warn "Workspace already registered: ${ws_path}"
+      else
+        echo "${ws_path} ${ws_name} $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${SEJA_WORKSPACES_CONF}"
+        log_ok "Registered workspace: ${ws_name} (${ws_path})"
+      fi
+
+      # Generate/update docker-compose.override.yml
+      local override_file="${SEJA_COMPOSE_OVERRIDE}"
+      {
+        echo "version: \"3.9\""
+        echo "services:"
+        echo "  ${SEJA_CONTAINER_NAME}:"
+        echo "    volumes:"
+        while IFS=' ' read -r reg_path reg_name reg_date; do
+          [[ -z "${reg_path}" ]] && continue
+          echo "      - ${reg_path}:/workspace/${reg_name}"
+        done < "${SEJA_WORKSPACES_CONF}"
+      } > "${override_file}"
+      log_ok "Updated compose override with workspace mounts"
+
+      # Recreate container if running
+      if container_running; then
+        log_info "Recreating container with new workspace mount..."
+        docker_compose up -d --force-recreate 2>/dev/null && wait_health 60 5
+        log_ok "Container updated"
+      fi
+      ;;
+
+    remove)
+      local ws_path="${1:-}"
+      if [[ -z "${ws_path}" ]]; then
+        log_err "Usage: seja workspace remove <path>"
+        exit 1
+      fi
+      ws_path="$(cd "${ws_path}" 2>/dev/null && pwd)" || {
+        log_err "Invalid path: ${ws_path}"
+        exit 1
+      }
+
+      if [[ ! -f "${SEJA_WORKSPACES_CONF}" ]]; then
+        log_err "No workspaces registered"
+        exit 1
+      fi
+
+      # Remove from workspaces.conf
+      local tmp_conf
+      tmp_conf="$(mktemp "${SEJA_TMP_DIR}/workspaces.XXXXXX")"
+      grep -v "^${ws_path}\b" "${SEJA_WORKSPACES_CONF}" > "${tmp_conf}" || true
+      mv "${tmp_conf}" "${SEJA_WORKSPACES_CONF}"
+      log_ok "Removed workspace: ${ws_path}"
+
+      # Regenerate override
+      local override_file="${SEJA_COMPOSE_OVERRIDE}"
+      {
+        echo "version: \"3.9\""
+        echo "services:"
+        echo "  ${SEJA_CONTAINER_NAME}:"
+        echo "    volumes:"
+        while IFS=' ' read -r reg_path reg_name reg_date; do
+          [[ -z "${reg_path}" ]] && continue
+          echo "      - ${reg_path}:/workspace/${reg_name}"
+        done < "${SEJA_WORKSPACES_CONF}"
+      } > "${override_file}"
+      log_ok "Updated compose override"
+
+      if container_running; then
+        docker_compose up -d --force-recreate 2>/dev/null && wait_health 60 5
+        log_ok "Container updated"
+      fi
+      ;;
+
+    list)
+      if [[ ! -f "${SEJA_WORKSPACES_CONF}" ]] || [[ ! -s "${SEJA_WORKSPACES_CONF}" ]]; then
+        echo "No workspaces registered."
+        return 0
+      fi
+      echo "${C_BOLD}Registered Workspaces:${C_RESET}"
+      printf "  %-40s %-20s %s\n" "Path" "Name" "Added"
+      echo "  ${C_GREY}─────────────────────────────────────────${C_RESET}"
+      while IFS=' ' read -r reg_path reg_name reg_date; do
+        [[ -z "${reg_path}" ]] && continue
+        printf "  %-40s %-20s %s\n" "${reg_path}" "${reg_name}" "${reg_date}"
+      done < "${SEJA_WORKSPACES_CONF}"
+      ;;
+
+    sync)
+      local sync_path="${1:-}"
+      if [[ -z "${sync_path}" ]]; then
+        log_err "Usage: seja workspace sync <path>"
+        exit 1
+      fi
+      sync_path="$(cd "${sync_path}" 2>/dev/null && pwd)" || {
+        log_err "Invalid path: ${sync_path}"
+        exit 1
+      }
+
+      if ! container_running; then
+        log_err "Container is not running. Start SEJA first with 'seja start'."
+        exit 1
+      fi
+
+      local ws_name
+      ws_name="$(basename "${sync_path}")"
+      log_info "Syncing workspace ${ws_name}..."
+      docker exec "${SEJA_CONTAINER_NAME}" \
+        python -c "
+import sys
+sys.path.insert(0, '/opt/seja-mcp')
+from seja_mcp.db.connection import get_db
+from seja_mcp.sync.markdown_export import export_markdown
+db = get_db()
+export_markdown(db, '/workspace/${ws_name}/.seja')
+print('Sync complete')
+" 2>/dev/null || {
+        log_warn "Inline sync failed. Falling back to MCP health check."
+      if docker exec "${SEJA_CONTAINER_NAME}" curl -sf http://localhost:8765/health &>/dev/null; then
+        log_info "MCP is healthy. Try running sync from within the container."
+      else
+        log_err "MCP is not available."
+      fi
+      }
+      ;;
+
+    *)
+      log_err "Unknown workspace subcommand: ${subcmd}"
+      echo "Usage: seja workspace <add|remove|list|sync>"
+      exit 1
+      ;;
+  esac
+}
+
+# ── config ────────────────────────────────────
+cmd_config() {
+  local subcmd="${1:-list}"
+  shift 2>/dev/null || true
+
+  if [[ ! -f "${SEJA_ENV_FILE}" ]]; then
+    log_err "No configuration found. Run 'seja setup' first."
+    exit 1
+  fi
+
+  case "${subcmd}" in
+    get)
+      local key="${1:-}"
+      if [[ -z "${key}" ]]; then
+        log_err "Usage: seja config get <key>"
+        exit 1
+      fi
+      # shellcheck source=/dev/null
+      source "${SEJA_ENV_FILE}"
+      local val
+      val="$(eval "echo \${${key}:-}" 2>/dev/null || echo "")"
+      if [[ -n "${val}" ]]; then
+        echo "${val}"
+      else
+        log_err "Key '${key}' not found in configuration"
+        exit 1
+      fi
+      ;;
+
+    set)
+      local key="${1:-}"
+      local value="${2:-}"
+      if [[ -z "${key}" ]] || [[ -z "${value}" ]]; then
+        log_err "Usage: seja config set <key> <value>"
+        exit 1
+      fi
+
+      # Validate key name (alphanumeric + underscore)
+      if ! [[ "${key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        log_err "Invalid key name: ${key}"
+        exit 1
+      fi
+
+      # Update or add the key in .env
+      if grep -q "^${key}=" "${SEJA_ENV_FILE}" 2>/dev/null; then
+        if [[ "$(uname)" == "Darwin" ]]; then
+          sed -i '' "s|^${key}=.*|${key}=${value}|" "${SEJA_ENV_FILE}"
+        else
+          sed -i "s|^${key}=.*|${key}=${value}|" "${SEJA_ENV_FILE}"
+        fi
+      else
+        echo "${key}=${value}" >> "${SEJA_ENV_FILE}"
+      fi
+      log_ok "Set ${key}=${value}"
+      ;;
+
+    list)
+      echo "${C_BOLD}SEJA Configuration:${C_RESET}"
+      echo "  ${C_GREY}File: ${SEJA_ENV_FILE}${C_RESET}"
+      echo ""
+      # shellcheck source=/dev/null
+      source "${SEJA_ENV_FILE}"
+      while IFS='=' read -r key value; do
+        [[ -z "${key}" ]] && continue
+        [[ "${key}" == \#* ]] && continue
+        if [[ "${key}" == *"TOKEN"* ]] || [[ "${key}" == *"SECRET"* ]] || [[ "${key}" == *"KEY"* ]]; then
+          value="${value:0:4}****"
+        fi
+        echo "  ${key}=${value}"
+      done < "${SEJA_ENV_FILE}"
+      ;;
+
+    edit)
+      local editor="${EDITOR:-vi}"
+      if ! command -v "${editor}" &>/dev/null; then
+        editor="vi"
+      fi
+      "${editor}" "${SEJA_ENV_FILE}"
+      log_ok "Configuration saved"
+      ;;
+
+    *)
+      log_err "Unknown config subcommand: ${subcmd}"
+      echo "Usage: seja config <get|set|list|edit>"
+      exit 1
+      ;;
+  esac
+}
+
+# ── doctor ────────────────────────────────────
+cmd_doctor() {
+  echo ""
+  echo "${C_BOLD}SEJA Doctor${C_RESET}"
+  echo "${C_GREY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo ""
+
+  local all_ok=true
+
+  # Docker
+  echo -n "Docker: "
+  if command -v docker &>/dev/null; then
+    if docker info &>/dev/null; then
+      log_ok "running"
+    else
+      log_err "daemon not running"
+      all_ok=false
+    fi
+  else
+    log_err "not installed"
+    all_ok=false
+  fi
+  echo ""
+
+  # MCP Health
+  echo -n "MCP Health: "
+  if container_running; then
+    local mcp_status
+    mcp_status="$(docker exec "${SEJA_CONTAINER_NAME}" curl -sf http://localhost:8765/health 2>/dev/null || echo "")"
+    if [[ -n "${mcp_status}" ]]; then
+      log_ok "available"
+    else
+      log_err "unreachable"
+      all_ok=false
+    fi
+  else
+    log_warn "container not running"
+  fi
+  echo ""
+
+  # cosign
+  echo -n "cosign: "
+  if command -v cosign &>/dev/null; then
+    log_ok "installed"
+    if [[ -f "${SEJA_COSIGN_PUB}" ]]; then
+      echo -n "cosign key: "
+      log_ok "present"
+    else
+      echo -n "cosign key: "
+      log_warn "missing"
+    fi
+  else
+    log_warn "not installed"
+  fi
+  echo ""
+
+  # git
+  echo -n "git: "
+  if command -v git &>/dev/null; then
+    local git_ver
+    git_ver="$(git --version 2>/dev/null || echo "unknown")"
+    log_ok "${git_ver}"
+  else
+    log_err "not installed"
+    all_ok=false
+  fi
+  echo ""
+
+  # Disk space
+  echo -n "Disk space: "
+  if command -v df &>/dev/null; then
+    local avail
+    avail="$(df -h "${SEJA_SEJA_DIR}" 2>/dev/null | awk 'NR==2{print $4}')"
+    log_ok "${avail} available"
+  fi
+  echo ""
+
+  # Ports
+  echo -n "Ports: "
+  if command -v lsof &>/dev/null; then
+    for port in "${SEJA_OPENCODE_HOST_PORT}" "${SEJA_PROXY_PORT}" "${OMNITOOLS_HOST_PORT}"; do
+      if lsof -i :"${port}" &>/dev/null 2>&1; then
+        echo -n "${C_YELLOW}:${port} in use${C_RESET} "
+      else
+        echo -n "${C_GREEN}:${port} free${C_RESET} "
+      fi
+    done
+    echo ""
+  else
+    log_info "lsof not available, skipping port check"
+  fi
+  echo ""
+
+  # Conclude
+  if ${all_ok}; then
+    log_ok "All checks passed"
+  else
+    log_warn "Some checks failed — review above"
+  fi
+  echo ""
+}
+
+# ── backup ────────────────────────────────────
+cmd_backup() {
+  require_docker
+
+  if ! container_running "seja-litestream"; then
+    log_err "litestream container is not running"
+    exit 1
+  fi
+
+  local backup_name
+  backup_name="snapshot-$(date -u +%Y%m%dT%H%M%SZ).db"
+  local backup_path="${SEJA_LITESTREAM_DIR}/${backup_name}"
+
+  log_info "Triggering Litestream snapshot..."
+
+  # Trigger snapshot via litestream command
+  docker exec seja-litestream litestream snapshot \
+    -o "/backups/${backup_name}" "/data/seja-state/seja.db" 2>/dev/null || {
+    log_warn "Litestream snapshot command failed, trying direct copy..."
+    docker cp "seja-litestream:/data/seja-state/seja.db" "${backup_path}" 2>/dev/null || {
+      log_err "Backup failed"
+      exit 1
+    }
+  }
+
+  if [[ -f "${backup_path}" ]]; then
+    # Verify integrity
+    if command -v sqlite3 &>/dev/null; then
+      if sqlite3 "${backup_path}" "PRAGMA integrity_check;" 2>/dev/null | grep -q "ok"; then
+        log_ok "Backup created and integrity verified: ${backup_name}"
+      else
+        log_warn "Backup created but integrity check failed"
+      fi
+    else
+      log_ok "Backup created: ${backup_name}"
+    fi
+  else
+    # Check litestream backup dir
+    if ls "${SEJA_LITESTREAM_DIR}"/*.db 2>/dev/null; then
+      log_ok "Backup found in ${SEJA_LITESTREAM_DIR}"
+    else
+      log_err "Backup failed"
+      exit 1
+    fi
+  fi
+}
+
+# ── restore ───────────────────────────────────
+cmd_restore() {
+  local snapshot="${1:-}"
+
+  if [[ -z "${snapshot}" ]]; then
+    log_err "Usage: seja restore <snapshot>"
+    echo "Available snapshots:"
+    ls -1 "${SEJA_LITESTREAM_DIR}"/*.db 2>/dev/null || echo "  (none)"
+    exit 1
+  fi
+
+  local snapshot_path=""
+  if [[ -f "${snapshot}" ]]; then
+    snapshot_path="${snapshot}"
+  elif [[ -f "${SEJA_LITESTREAM_DIR}/${snapshot}" ]]; then
+    snapshot_path="${SEJA_LITESTREAM_DIR}/${snapshot}"
+  elif [[ -f "${SEJA_LITESTREAM_DIR}/${snapshot}.db" ]]; then
+    snapshot_path="${SEJA_LITESTREAM_DIR}/${snapshot}.db"
+  else
+    log_err "Snapshot not found: ${snapshot}"
+    echo "Search paths:"
+    echo "  ${snapshot}"
+    echo "  ${SEJA_LITESTREAM_DIR}/${snapshot}"
+    echo "  ${SEJA_LITESTREAM_DIR}/${snapshot}.db"
+    exit 1
+  fi
+
+  require_docker
+
+  log_warn "This will restore the SQLite database from the snapshot."
+  echo "  Source: ${snapshot_path}"
+  echo ""
+  read -rp "Continue? [y/N] " confirm </dev/tty
+  [[ "${confirm}" =~ ^[yY] ]] || { log_info "Restore aborted."; return 0; }
+
+  # Stop the main container to avoid writes during restore
+  log_info "Stopping SEJA container..."
+  docker_compose stop seja 2>/dev/null || true
+
+  # Restore via litestream or direct copy
+  if container_running "seja-litestream"; then
+    log_info "Restoring via litestream..."
+    docker exec seja-litestream litestream restore \
+      -o "/data/seja-state/seja.db" "${snapshot_path}" 2>/dev/null || true
+    if docker exec seja-litestream test -f "/data/seja-state/seja.db" 2>/dev/null; then
+      log_ok "Restore completed via litestream"
+    else
+      log_warn "Litestream restore failed, trying direct copy..."
+      if ! docker cp "${snapshot_path}" "seja-litestream:/data/seja-state/seja.db" 2>/dev/null; then
+        log_err "Restore failed"
+        exit 1
+      fi
+    fi
+  else
+    log_info "Copying snapshot directly to volume..."
+    local temp_container
+    temp_container="$(docker run -d --rm -v seja-state:/data alpine sleep 10 2>/dev/null)" || {
+      log_err "Could not access seja-state volume"
+      exit 1
+    }
+    docker cp "${snapshot_path}" "${temp_container}:/data/seja-state/seja.db" 2>/dev/null || true
+    docker rm -f "${temp_container}" &>/dev/null || true
+    log_ok "Restore completed"
+  fi
+
+  # Restart
+  log_info "Restarting SEJA..."
+  docker_compose start seja 2>/dev/null || docker_compose up -d
+  log_ok "Restore complete. Container restarted."
+}
+
+# ── verify ────────────────────────────────────
+cmd_verify() {
+  echo ""
+  echo "${C_BOLD}SEJA Integrity Verification${C_RESET}"
+  echo "${C_GREY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo ""
+
+  local all_ok=true
+
+  # Cosign key
+  echo -n "cosign key: "
+  if [[ -f "${SEJA_COSIGN_PUB}" ]]; then
+    local key_fingerprint
+    key_fingerprint="$(sha256sum "${SEJA_COSIGN_PUB}" | cut -d' ' -f1)"
+    log_ok "${key_fingerprint:0:16}..."
+  else
+    log_warn "not found"
+  fi
+  echo ""
+
+  # Git worktrees
+  echo -n "git worktrees: "
+  if command -v git &>/dev/null; then
+    local wt_count
+    wt_count="$(git worktree list 2>/dev/null | wc -l | tr -d ' ')" || wt_count="0"
+    log_ok "${wt_count} active"
+    if [[ "${wt_count}" -gt 0 ]]; then
+      git worktree list 2>/dev/null | while IFS= read -r line; do
+        echo "    ${line}"
+      done
+    fi
+  else
+    log_warn "git not available"
+  fi
+  echo ""
+
+  # SQLite integrity
+  echo -n "SQLite: "
+  if container_running; then
+    local integrity
+    integrity="$(docker exec "${SEJA_CONTAINER_NAME}" \
+      sqlite3 /root/.seja-state/seja.db "PRAGMA integrity_check;" 2>/dev/null || echo "error")"
+    if [[ "${integrity}" == "ok" ]]; then
+      log_ok "integrity check passed"
+    else
+      log_err "integrity check failed: ${integrity}"
+      all_ok=false
+    fi
+  else
+    # Check for any .db files in backup dir
+    local -a db_files=()
+    while IFS= read -r -d '' f; do
+      db_files+=("$f")
+    done < <(find "${SEJA_LITESTREAM_DIR}" -maxdepth 1 -name '*.db' -print0 2>/dev/null || true)
+    if [[ ${#db_files[@]} -gt 0 ]]; then
+      if command -v sqlite3 &>/dev/null; then
+        local latest="${db_files[0]}"
+        local integrity
+        integrity="$(sqlite3 "${latest}" "PRAGMA integrity_check;" 2>/dev/null || echo "error")"
+        if [[ "${integrity}" == "ok" ]]; then
+          log_ok "backup integrity check passed"
+        else
+          log_err "backup integrity check failed"
+          all_ok=false
+        fi
+      else
+        log_warn "sqlite3 not available, skipping DB check"
+      fi
+    else
+      log_warn "no database file available"
+    fi
+  fi
+  echo ""
+
+  if ${all_ok}; then
+    log_ok "All integrity checks passed"
+  else
+    log_warn "Some checks failed"
+  fi
+  echo ""
+}
+
+# ── exp ───────────────────────────────────────
+cmd_exp() {
+  local subcmd="${1:-list}"
+  shift 2>/dev/null || true
+
+  local project_root
+  project_root="$(find_project_root)"
+
+  case "${subcmd}" in
+    list)
+      require_cmd "git"
+
+      echo "${C_BOLD}Experiments:${C_RESET}"
+      printf "  %-20s %-10s %s\n" "Name" "Status" "Branch"
+      echo "  ${C_GREY}──────────────────────────────────────────${C_RESET}"
+
+      local worktree_dir="${project_root}/.worktrees/exp"
+      if [[ -d "${worktree_dir}" ]]; then
+        for exp_dir in "${worktree_dir}"/*/; do
+          [[ -d "${exp_dir}" ]] || continue
+          local exp_name
+          exp_name="$(basename "${exp_dir}")"
+          exp_name="${exp_name#exp-}"
+          local branch status
+          branch="$(git worktree list 2>/dev/null | grep "${exp_dir%/}" | awk '{print $3}' || echo "unknown")"
+          if git worktree list 2>/dev/null | grep "${exp_dir%/}" | grep -q "locked"; then
+            status="ready"
+          elif git worktree list 2>/dev/null | grep -q "${exp_dir%/}"; then
+            status="active"
+          else
+            status="discarded"
+          fi
+
+          if [[ "${status}" != "discarded" ]]; then
+            printf "  %-20s %-10s %s\n" "${exp_name}" "${status}" "${branch}"
+          fi
+        done
+      else
+        echo "  ${C_YELLOW}no experiments${C_RESET}"
+      fi
+      ;;
+
+    fork)
+      local exp_name="${1:-}"
+      if [[ -z "${exp_name}" ]]; then
+        log_err "Usage: seja exp fork <name>"
+        exit 1
+      fi
+
+      require_cmd "git"
+      # Ensure we're in a git repo
+      if ! git rev-parse --git-dir &>/dev/null; then
+        log_err "Not a git repository. Experiments require git."
+        exit 1
+      fi
+
+      local date_suffix
+      date_suffix="$(date +%Y%m%d)"
+      local branch_name="exp/${exp_name}-${date_suffix}"
+      local worktree_path="${project_root}/.worktrees/exp/exp-${exp_name}-${date_suffix}"
+
+      # Check if experiment already exists
+      if [[ -d "${worktree_path}" ]]; then
+        log_err "Experiment '${exp_name}' already exists at ${worktree_path}"
+        exit 1
+      fi
+
+      mkdir -p "${project_root}/.worktrees/exp"
+
+      log_info "Creating experiment '${exp_name}' on branch '${branch_name}'..."
+
+      # Create the branch
+      if ! git show-ref --verify --quiet "refs/heads/${branch_name}"; then
+        git branch "${branch_name}" 2>/dev/null || true
+      fi
+
+      # Add worktree with lock
+      git worktree add --lock "${worktree_path}" "${branch_name}" 2>/dev/null || {
+        log_err "Failed to create worktree. Is ${branch_name} already checked out?"
+        exit 1
+      }
+
+      log_ok "Experiment '${exp_name}' created at ${worktree_path}"
+      log_info "Branch: ${branch_name}"
+      log_info "Worktree locked (use 'seja exp merge' or 'seja exp discard' to release)"
+      ;;
+
+    merge)
+      local exp_name="${1:-}"
+      if [[ -z "${exp_name}" ]]; then
+        log_err "Usage: seja exp merge <name>"
+        exit 1
+      fi
+
+      require_cmd "git"
+
+      local worktree_dir="${project_root}/.worktrees/exp"
+      local found_dir=""
+      for exp_dir in "${worktree_dir}"/exp-"${exp_name}"*/; do
+        [[ -d "${exp_dir}" ]] && { found_dir="${exp_dir%/}"; break; }
+      done
+
+      if [[ -z "${found_dir}" ]]; then
+        log_err "Experiment '${exp_name}' not found"
+        exit 1
+      fi
+
+      local branch_name
+      branch_name="$(git worktree list 2>/dev/null | grep "${found_dir}" | awk '{print $3}')"
+
+      if [[ -z "${branch_name}" ]]; then
+        log_err "Could not determine branch for experiment '${exp_name}'"
+        exit 1
+      fi
+
+      log_info "Merging experiment '${exp_name}' (branch: ${branch_name})..."
+      read -rp "Merge branch '${branch_name}' into current branch? [y/N] " confirm </dev/tty
+      [[ "${confirm}" =~ ^[yY] ]] || { log_info "Merge aborted."; return 0; }
+
+      # Unlock and remove worktree
+      git worktree unlock "${found_dir}" 2>/dev/null || true
+      git worktree remove "${found_dir}" 2>/dev/null || {
+        log_warn "Could not remove worktree, attempting force remove..."
+        git worktree remove --force "${found_dir}" 2>/dev/null || true
+      }
+
+      # Merge the branch
+      if git merge --no-ff "${branch_name}" -m "feat(exp): merge experiment ${exp_name}"; then
+        log_ok "Experiment '${exp_name}' merged successfully"
+      else
+        log_err "Merge conflict. Resolve manually, then run 'git merge --continue'"
+        exit 1
+      fi
+      ;;
+
+    status)
+      local exp_name="${1:-}"
+
+      if [[ -z "${exp_name}" ]]; then
+        # Show overall status
+        cmd_exp list
+        return 0
+      fi
+
+      require_cmd "git"
+      local worktree_dir="${project_root}/.worktrees/exp"
+      local found_dir=""
+      for exp_dir in "${worktree_dir}"/exp-"${exp_name}"*/; do
+        [[ -d "${exp_dir}" ]] && { found_dir="${exp_dir%/}"; break; }
+      done
+
+      if [[ -z "${found_dir}" ]]; then
+        log_err "Experiment '${exp_name}' not found"
+        exit 1
+      fi
+
+      echo "${C_BOLD}Experiment: ${exp_name}${C_RESET}"
+      echo "  Path: ${found_dir}"
+      if git worktree list 2>/dev/null | grep -q "${found_dir}"; then
+        local branch_name
+        branch_name="$(git worktree list 2>/dev/null | grep "${found_dir}" | awk '{print $3}')"
+        echo "  Branch: ${branch_name}"
+        if git worktree list 2>/dev/null | grep "${found_dir}" | grep -q "locked"; then
+          echo "  Locked: yes"
+        fi
+        # Show git log
+        echo ""
+        echo "  Recent commits:"
+        git -C "${found_dir}" log --oneline -5 2>/dev/null | while IFS= read -r line; do
+          echo "    ${line}"
+        done
+      else
+        echo "  Status: discarded"
+      fi
+      ;;
+
+    discard)
+      local exp_name="${1:-}"
+      if [[ -z "${exp_name}" ]]; then
+        log_err "Usage: seja exp discard <name>"
+        exit 1
+      fi
+
+      require_cmd "git"
+      local worktree_dir="${project_root}/.worktrees/exp"
+      local found_dir=""
+      for exp_dir in "${worktree_dir}"/exp-"${exp_name}"*/; do
+        [[ -d "${exp_dir}" ]] && { found_dir="${exp_dir%/}"; break; }
+      done
+
+      if [[ -z "${found_dir}" ]]; then
+        log_err "Experiment '${exp_name}' not found"
+        exit 1
+      fi
+
+      local branch_name
+      branch_name="$(git worktree list 2>/dev/null | grep "${found_dir}" | awk '{print $3}')"
+
+      log_warn "This will discard experiment '${exp_name}'"
+      echo "  Worktree: ${found_dir}"
+      echo "  Branch: ${branch_name}"
+      echo ""
+      read -rp "Are you sure? This action is irreversible. [y/N] " confirm </dev/tty
+      [[ "${confirm}" =~ ^[yY] ]] || { log_info "Discard aborted."; return 0; }
+
+      # Unlock and remove worktree
+      git worktree unlock "${found_dir}" 2>/dev/null || true
+      git worktree remove --force "${found_dir}" 2>/dev/null || {
+        log_err "Failed to remove worktree"
+        exit 1
+      }
+
+      # Delete the branch
+      if git branch -D "${branch_name}" 2>/dev/null; then
+        log_ok "Branch '${branch_name}' deleted"
+      fi
+
+      log_ok "Experiment '${exp_name}' discarded"
+      ;;
+
+    *)
+      log_err "Unknown exp subcommand: ${subcmd}"
+      echo "Usage: seja exp <list|fork|merge|status|discard>"
+      exit 1
+      ;;
+  esac
+}
+
+# ── inspect ───────────────────────────────────
+cmd_inspect() {
+  if ! container_running; then
+    log_err "Container is not running. Start SEJA first."
+    exit 1
+  fi
+
+  local project_root
+  project_root="$(find_project_root)"
+
+  log_info "Running semiotic inspection..."
+
+  docker exec "${SEJA_CONTAINER_NAME}" bash -c "
+    echo '=== Semiotic Inspection ==='
+    echo ''
+    echo '--- Project State ---'
+    echo 'Phase: \$(curl -sf http://localhost:8765/health 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get(\"lifecycle_fsm\", \"unknown\"))' 2>/dev/null || echo 'unknown')'
+    echo ''
+    echo '--- Constitution ---'
+    cat '/workspace/$(basename "${project_root}")/.seja/constitution.md' 2>/dev/null || echo '(not mounted)'
+    echo ''
+    echo '--- Design Intent ---'
+    cat '/workspace/$(basename "${project_root}")/.seja/product-design-as-intended.md' 2>/dev/null || echo '(not mounted)'
+    echo ''
+    echo '--- As-Coded Status ---'
+    cat '/workspace/$(basename "${project_root}")/.seja/product-design-as-coded.md' 2>/dev/null || echo '(not mounted)'
+    echo ''
+    echo '--- Decision Records ---'
+    ls '/workspace/$(basename "${project_root}")/.seja/decisions/' 2>/dev/null || echo '(no decisions)'
+    echo ''
+    echo '--- Journey Maps ---'
+    ls '/workspace/$(basename "${project_root}")/.seja/journeys/' 2>/dev/null || echo '(no journeys)'
+  " 2>/dev/null || {
+    log_warn "Inspection via container failed. Running local inspection..."
+    echo ""
+    echo "=== Local Semiotic Inspection ==="
+    echo ""
+    echo "--- Project Root ---"
+    echo "  ${project_root}"
+    echo ""
+    echo "--- .seja/ Structure ---"
+    ls -la "${project_root}/.seja/" 2>/dev/null || echo "  (no .seja/ directory)"
+    echo ""
+    echo "--- Decisions ---"
+    ls "${project_root}/.seja/decisions/" 2>/dev/null || echo "  (none)"
+    echo ""
+    echo "--- Plans ---"
+    ls "${project_root}/.seja/plans/" 2>/dev/null || echo "  (none)"
+    echo ""
+    echo "--- Research ---"
+    ls "${project_root}/.seja/research/" 2>/dev/null || echo "  (none)"
+  }
+}
+
+# ── check ─────────────────────────────────────
+cmd_check() {
+  local project_root
+  project_root="$(find_project_root)"
+
+  echo ""
+  echo "${C_BOLD}SEJA Invariants Check${C_RESET}"
+  echo "${C_GREY}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${C_RESET}"
+  echo ""
+
+  local all_ok=true
+
+  # 1. Check .seja/ exists
+  echo -n "1. .seja/ directory: "
+  if [[ -d "${project_root}/.seja" ]]; then
+    log_ok "present"
+  else
+    log_err "missing"
+    all_ok=false
+  fi
+
+  # 2. Check constitution.md
+  echo -n "2. constitution.md: "
+  if [[ -f "${project_root}/.seja/constitution.md" ]]; then
+    log_ok "present"
+  else
+    log_warn "missing"
+  fi
+
+  # 3. Check dassign design files
+  echo -n "3. Design intent: "
+  if [[ -f "${project_root}/.seja/product-design-as-intended.md" ]]; then
+    log_ok "present"
+  else
+    log_warn "missing"
+  fi
+
+  # 4. Check Docker availability
+  echo -n "4. Docker: "
+  if command -v docker &>/dev/null && docker info &>/dev/null; then
+    log_ok "running"
+  else
+    log_err "not available"
+    all_ok=false
+  fi
+
+  # 5. Check SEJA container
+  echo -n "5. SEJA container: "
+  if container_running; then
+    log_ok "running"
+  else
+    log_warn "not running"
+  fi
+
+  # 6. Check MCP endpoint
+  echo -n "6. MCP endpoint: "
+  if container_running; then
+    local mcp_check
+    mcp_check="$(docker exec "${SEJA_CONTAINER_NAME}" curl -sf http://localhost:8765/health 2>/dev/null || echo "")"
+    if [[ -n "${mcp_check}" ]]; then
+      log_ok "responsive"
+    else
+      log_warn "unreachable"
+    fi
+  else
+    log_warn "skipped (container not running)"
+  fi
+
+  # 7. Check config
+  echo -n "7. Configuration: "
+  if [[ -f "${SEJA_ENV_FILE}" ]]; then
+    log_ok "present"
+  else
+    log_warn "missing (run 'seja setup')"
+  fi
+
+  # 8. Check cosign key
+  echo -n "8. cosign key: "
+  if [[ -f "${SEJA_COSIGN_PUB}" ]]; then
+    log_ok "present"
+  else
+    log_warn "missing"
+  fi
+
+  echo ""
+  if ${all_ok}; then
+    log_ok "All critical invariants satisfied"
+  else
+    log_warn "Some critical invariants failed"
+  fi
+  echo ""
+}
+
+# ── sync ──────────────────────────────────────
+cmd_sync() {
+  if ! container_running; then
+    log_err "Container is not running. Start SEJA first with 'seja start'."
+    exit 1
+  fi
+
+  log_info "Syncing all workspaces..."
+
+  if [[ ! -f "${SEJA_WORKSPACES_CONF}" ]]; then
+    log_info "No workspaces registered."
+    return 0
+  fi
+
+  local synced=0
+  while IFS=' ' read -r ws_path ws_name _; do
+    [[ -z "${ws_path}" ]] && continue
+    log_info "Syncing ${ws_name}..."
+
+    local target="/workspace/${ws_name}/.seja"
+    if docker exec "${SEJA_CONTAINER_NAME}" test -d "${target}" 2>/dev/null; then
+      docker exec "${SEJA_CONTAINER_NAME}" bash -c "
+        python3 -c \"
+import sys
+sys.path.insert(0, '/opt/seja-mcp')
+try:
+    from seja_mcp.db.connection import get_db
+    from seja_mcp.sync.markdown_export import export_markdown
+    db = get_db()
+    export_markdown(db, '${target}')
+    print('Synced: ${target}')
+except Exception as e:
+    print(f'Sync failed: {e}', file=sys.stderr)
+\" 2>/dev/null"
+        if docker exec "${SEJA_CONTAINER_NAME}" test -d "${target}" 2>/dev/null; then
+          synced=$((synced + 1))
+        else
+          log_warn "Failed to sync ${ws_name}"
+        fi
+    else
+      log_warn "No .seja/ found in workspace ${ws_name} at ${target}"
+    fi
+  done < "${SEJA_WORKSPACES_CONF}"
+
+  log_ok "Synced ${synced} workspace(s)"
+}
+
+# ── list ──────────────────────────────────────
+cmd_list() {
+  echo "Available SEJA commands:"
+  echo ""
+  echo "  ${C_BOLD}Core:${C_RESET}"
+  echo "    setup      Initialize ~/.seja/ and pull image"
+  echo "    init       Initialize a SEJA project"
+  echo "    status     Show container and MCP status"
+  echo "    start      Start SEJA services"
+  echo "    stop       Stop SEJA services"
+  echo "    restart    Restart SEJA services"
+  echo "    logs       View service logs"
+  echo "    shell      Open shell in container"
+  echo "    exec       Execute command in container"
+  echo "    update     Update SEJA to latest version"
+  echo "    version    Show version"
+  echo "    help       Show help"
+  echo ""
+  echo "  ${C_BOLD}Workspace:${C_RESET}"
+  echo "    workspace  Manage workspaces (add, remove, list, sync)"
+  echo ""
+  echo "  ${C_BOLD}Config:${C_RESET}"
+  echo "    config     Manage config (get, set, list, edit)"
+  echo ""
+  echo "  ${C_BOLD}Admin:${C_RESET}"
+  echo "    doctor     Run diagnostics"
+  echo "    backup     Trigger Litestream backup"
+  echo "    restore    Restore from snapshot"
+  echo "    verify     Verify integrity"
+  echo ""
+  echo "  ${C_BOLD}Experiments:${C_RESET}"
+  echo "    exp        Manage experiments (list, fork, merge, status, discard)"
+  echo ""
+  echo "  ${C_BOLD}Special:${C_RESET}"
+  echo "    inspect    Semiotic inspection"
+  echo "    check      Run invariants checks"
+  echo "    sync       Sync all workspaces"
+  echo "    list       List commands"
+  echo "    completion Generate shell completion"
+  echo ""
+  echo "Run 'seja help <command>' for detailed usage."
+}
+
+# ── completion ────────────────────────────────
+cmd_completion() {
+  local shell="${1:-bash}"
+
+  case "${shell}" in
+    bash)
+      cat << 'BASHCOMP'
+_seja_completions() {
+  local cur prev words cword
+  _init_completion || return
+
+  local commands="setup init status start stop restart logs shell exec update version help workspace config doctor backup restore verify exp inspect check sync list completion"
+
+  # Subcommand-specific completion
+  case "${prev}" in
+    help)
+      COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
+      return 0
+      ;;
+    workspace)
+      COMPREPLY=($(compgen -W "add remove list sync" -- "${cur}"))
+      return 0
+      ;;
+    config)
+      COMPREPLY=($(compgen -W "get set list edit" -- "${cur}"))
+      return 0
+      ;;
+    exp)
+      COMPREPLY=($(compgen -W "list fork merge status discard" -- "${cur}"))
+      return 0
+      ;;
+    completion)
+      COMPREPLY=($(compgen -W "bash zsh" -- "${cur}"))
+      return 0
+      ;;
+    logs)
+      COMPREPLY=($(compgen -W "--tail --follow" -- "${cur}"))
+      return 0
+      ;;
+    update)
+      COMPREPLY=($(compgen -W "--check" -- "${cur}"))
+      return 0
+      ;;
+    status)
+      COMPREPLY=($(compgen -W "--json" -- "${cur}"))
+      return 0
+      ;;
+    setup)
+      COMPREPLY=($(compgen -W "--dry-run --no-pull --image" -- "${cur}"))
+      return 0
+      ;;
+    *)
+      COMPREPLY=($(compgen -W "${commands}" -- "${cur}"))
+      return 0
+      ;;
+  esac
+}
+complete -F _seja_completions seja
+BASHCOMP
+      ;;
+
+    zsh)
+      cat << 'ZSHCOMP'
+#compdef seja
+
+_seja() {
+  local context state state_descr line
+  typeset -A opt_args
+
+  _arguments -C \
+    '1:command:->commands' \
+    '*::args:->args'
+
+  case "$state" in
+    commands)
+      local commands
+      commands=(
+        'setup:Initialize ~/.seja/ directory structure'
+        'init:Initialize a SEJA project'
+        'status:Show container and MCP status'
+        'start:Start SEJA services'
+        'stop:Stop SEJA services'
+        'restart:Restart SEJA services'
+        'logs:View service logs'
+        'shell:Open shell in container'
+        'exec:Execute command in container'
+        'update:Update SEJA to latest version'
+        'version:Show version'
+        'help:Show help'
+        'workspace:Manage workspaces'
+        'config:Manage configuration'
+        'doctor:Run diagnostics'
+        'backup:Trigger Litestream backup'
+        'restore:Restore from snapshot'
+        'verify:Verify integrity'
+        'exp:Manage experiments'
+        'inspect:Semiotic inspection'
+        'check:Run invariants checks'
+        'sync:Sync workspaces'
+        'list:List commands'
+        'completion:Generate shell completion'
+      )
+      _describe 'seja command' commands
+      ;;
+    args)
+      case "$line[1]" in
+        workspace)
+          _arguments '1:workspace subcmd:(add remove list sync)' ;;
+        config)
+          _arguments '1:config subcmd:(get set list edit)' ;;
+        exp)
+          _arguments '1:exp subcmd:(list fork merge status discard)' ;;
+        completion)
+          _arguments '1:shell:(bash zsh)' ;;
+        help)
+          _arguments '1:command:(setup init status start stop restart logs shell exec update version workspace config doctor backup restore verify exp inspect check sync list completion)' ;;
+        logs)
+          _arguments '--tail[Last N lines]' '--follow[Follow log output]' ;;
+        status)
+          _arguments '--json[JSON output]' ;;
+        setup)
+          _arguments '--dry-run[Dry run]' '--no-pull[Skip image pull]' '--image[Docker image]' ;;
+        update)
+          _arguments '--check[Check only]' ;;
+      esac
+      ;;
+  esac
+}
+
+compdef _seja seja
+ZSHCOMP
+      ;;
+    *)
+      log_err "Unknown shell: ${shell}. Supported: bash, zsh"
+      exit 1
+      ;;
+  esac
+}
+
+# ──────────────────────────────────────────────
+# Main dispatch
+# ──────────────────────────────────────────────
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    # Default behavior: start and attach
+    cmd_start
+    exit $?
+  fi
+
+  local cmd="$1"
+  shift
+
+  case "${cmd}" in
+    setup)      cmd_setup "$@" ;;
+    init)       cmd_init "$@" ;;
+    status)     cmd_status "$@" ;;
+    start)      cmd_start "$@" ;;
+    stop)       cmd_stop "$@" ;;
+    restart)    cmd_restart "$@" ;;
+    logs)       cmd_logs "$@" ;;
+    shell)      cmd_shell "$@" ;;
+    exec)       cmd_exec "$@" ;;
+    update)     cmd_update "$@" ;;
+    version|--version|-v) cmd_version "$@" ;;
+    help|--help|-h) cmd_help "$@" ;;
+    workspace)  cmd_workspace "$@" ;;
+    config)     cmd_config "$@" ;;
+    doctor)     cmd_doctor "$@" ;;
+    backup)     cmd_backup "$@" ;;
+    restore)    cmd_restore "$@" ;;
+    verify)     cmd_verify "$@" ;;
+    exp)        cmd_exp "$@" ;;
+    inspect)    cmd_inspect "$@" ;;
+    check)      cmd_check "$@" ;;
+    sync)       cmd_sync "$@" ;;
+    list)       cmd_list "$@" ;;
+    completion) cmd_completion "$@" ;;
+    *)
+      log_err "Unknown command: ${cmd}"
+      echo ""
+      cmd_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

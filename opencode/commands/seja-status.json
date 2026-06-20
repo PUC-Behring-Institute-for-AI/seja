@@ -1,0 +1,11 @@
+{
+  "name": "seja-status",
+  "description": "Show current project status",
+  "command": "seja-status",
+  "triggers": {
+    "agent": null,
+    "type": "mcp"
+  },
+  "expects": "optional workspace path",
+  "instructions": "Query the SEJA-MCP server for the current project status and produce a structured status report.\n\n## Data Sources (direct MCP queries)\n1. seja.project.detect() or seja.project.get_project_status(workspace_path)\n2. seja.lifecycle.get_current_phase()\n3. seja.pending.list_pending()\n4. seja.decisions.list_decisions()\n5. seja.design.list_features()\n6. seja.plans.get_last_approved_plan()\n7. seja.telemetry.query_telemetry(days=7)\n\n## Status Report Structure\n- **Project**: name, workspace path, phase (with FSM diagram reference)\n- **Phase details**: current FSM state, allowed transitions, pending blocking actions\n- **Plan**: active plan id, step progress (N/M completed), checker status\n- **Features**: summary of as-intended vs as-coded (implemented/pending count)\n- **Decisions**: recent D-NNN count, active decisions\n- **Pending**: open actions grouped by blocking vs non-blocking\n- **Recent activity**: telemetry summary from last 7 days\n- **Experiments**: active experiments and their status (if any)\n- **Health indicators**: warnings or anomalies detected\n\nIf workspace_path is provided, query that specific workspace. Otherwise auto-detect.\n\n## Workspace\n$ARGUMENTS"
+}

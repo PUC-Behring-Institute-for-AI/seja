@@ -1,0 +1,11 @@
+{
+  "name": "seja-research",
+  "description": "Investigate a technology or approach",
+  "command": "seja-research",
+  "triggers": {
+    "agent": "seja-research",
+    "type": "agent"
+  },
+  "expects": "research question",
+  "instructions": "Investigate the given research question and produce a structured research report.\n\n## Workflow\n1. seja.project.detect() → identify active project\n2. seja.constitution.get() → understand project constraints\n3. seja.design.get_global_metacomm() → understand design intent context\n4. seja.decisions.search_decisions(topic) → check for existing decisions on this topic\n5. seja.research.get_experiment_candidates() → check for parallel exploration candidates\n\n## Research Report Structure\n- **Research ID**: unique identifier\n- **Question**: the original research question restated\n- **Methodology**: sources consulted, approaches evaluated\n- **Findings**: key discoveries organized by theme\n- **Analysis**: trade-offs, risks, and opportunities\n- **Recommendation**: clear actionable recommendation\n- **Branch**: whether this feeds into \"design\" or \"plan\"\n- **Alternatives**: options explicitly not recommended, with rationale\n- **Experiment candidates**: if parallel exploration is recommended (Seção 23)\n\n## Templates Used\n- Standard research: comprehensive multi-source investigation\n- Quick scan: lightweight check (for bounded questions)\n- Experiment brief: for parallel exploration candidates\n\nAfter completion:\n- Register research via seja.research.create_research()\n- Delegate to @seja-research-reviewer for evaluation\n- If recommendation is clear: transition or suggest next phase\n\n## Research Question\n$ARGUMENTS"
+}

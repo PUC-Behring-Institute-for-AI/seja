@@ -1,0 +1,295 @@
+# AGENTS.md — SEJA Governance Framework
+# Version: 2.1.0
+# Location: ~/.config/opencode/AGENTS.md
+
+## 0. SESSION-START PROTOCOL
+
+1. Verify this AGENTS.md loaded correctly — confirm SEJA identifier present
+2. Verify MCP connection to `http://localhost:8765/mcp` via health check
+3. Load project-local `AGENTS.md` if present at workspace root — local overrides
+   apply as declared over sections 1, 4, and 5 only
+4. If local AGENTS.md not found, trigger project bootstrap workflow
+5. Log session start via `seja.telemetry.record_invocation()`
+
+## 1. AGENTS CATALOG
+
+### 1.1 Primary Agents (Tab-cyclable, @mention available)
+
+| Agent | Role | Mode | Model tier | Invocation |
+|-------|------|------|------------|------------|
+| **seja-strategy** | Strategic architect — defines semiotic engineering approach for each task | primary | REASON | Tab / @mention |
+| **seja-architect** | Solution architect — decomposes strategy into concrete plans | primary | REASON | Tab / @mention |
+| **seja-planner** | Implementation planner — breaks plans into executable tasks | primary | CODE | Tab / @mention |
+| **seja-implement** | Hands-on coder — writes all implementation code | primary | CODE | Tab / @mention |
+| **seja-check** | Quality enforcer — reviews all work before phase transitions | primary | REASON | Tab / @mention |
+
+### 1.2 Hidden Subagents (invoked via @mention only)
+
+| Agent | Role | Mode | Model tier | Invocation |
+|-------|------|------|------------|------------|
+| **seja-triage** | Inbox manager — reads and categorizes new input | hidden | FAST | @mention |
+| **seja-oracle** | Deep reasoning specialist — answers complex questions | hidden | REASON | @mention |
+| **seja-research** | Research assistant — investigates technologies and solutions | hidden | REASON | @mention |
+| **seja-council** | Multi-perspective evaluator — debates decisions from multiple archetypes | hidden | REASON | @mention |
+| **seja-semiotic** | Semiotic engineering specialist — evaluates semiotic coherence | hidden | REASON | @mention |
+| **seja-tester** | Test specialist — writes and runs tests | hidden | FAST | @mention |
+| **seja-docs** | Documentation writer — generates and maintains docs | hidden | FAST | @mention |
+| **seja-brief** | Context summarizer — produces briefs for context management | hidden | FAST | @mention |
+| **seja-workspace** | Workspace manager — configures and maintains workspaces | hidden | FAST | @mention |
+| **seja-boost** | Performance optimizer — accelerates workflows | hidden | FAST | @mention |
+| **seja-chronicler** | Session historian — records and indexes session data | hidden | FAST | @mention |
+
+### 1.3 Model Tier Resolution
+
+| Tier | Variable | Model |
+|------|----------|-------|
+| REASON | `SEJA_TIER_REASON` | `opencode-go/deepseek-v4-pro` |
+| CODE | `SEJA_TIER_CODE` | `opencode-go/deepseek-v4-flash` |
+| FAST | `SEJA_TIER_FAST` | `opencode-go/deepseek-v4-flash` |
+
+## 2. ROUTING MODEL
+
+### 2.1 Default routing
+
+All incoming requests → **seja-triage** (inbox manager) → classify → route:
+
+```
+User input
+    ↓
+seja-triage ──▶ classify: urgency × domain
+    │                    │
+    ├── strategy ───────▶ seja-strategy
+    ├── architecture ───▶ seja-architect
+    ├── planning ───────▶ seja-planner
+    ├── implementation ─▶ seja-implement
+    ├── quality ────────▶ seja-check
+    ├── research ───────▶ seja-research
+    ├── documentation ──▶ seja-docs
+    ├── operations ─────▶ seja-workspace
+    └── metacognitive ──▶ seja-brief / seja-chronicler
+```
+
+### 2.2 Direct routing (bypass triage)
+
+- **Urgent/blocked**: route directly to `@seja-oracle` or `@seja-council`
+- **Metacognitive work** (docs, briefs, session summaries): route directly to `@seja-docs`, `@seja-brief`
+- **Semiotic evaluation**: route directly to `@seja-semiotic`
+- **Explicit agent mention**: `@agent-name` bypasses triage entirely
+
+### 2.3 Triage classification schema
+
+| Field | Values |
+|-------|--------|
+| Urgency | `immediate`, `this-session`, `next-session`, `backlog` |
+| Domain | `strategy`, `architecture`, `planning`, `implementation`, `quality`, `research`, `documentation`, `operations`, `metacognitive`, `semiotic` |
+
+## 3. LIFECYCLE FSM
+
+### 3.1 States
+
+```
+setup → design → research → plan → implement → check → document → reflect → design (cycle)
+```
+
+### 3.2 Forward transitions with guards
+
+| From | To | Guard | Hard block |
+|------|----|-------|------------|
+| setup | design | constitution_not_empty | YES |
+| design | research | design_intent_defined | YES |
+| research | plan | research_recommendation_clear | Advisory |
+| plan | implement | plan_approved | YES |
+| implement | check | all_steps_done | YES |
+| check | document | all_checks_passed | YES |
+| document | reflect | documentation_generated | Advisory |
+| reflect | design | (none) | — |
+
+### 3.3 Reverse transitions (C8)
+
+| From | To | Guard | Hard block |
+|------|----|-------|------------|
+| implement | design | reason_provided | YES |
+| implement | research | reason_provided | YES |
+| plan | design | reason_provided | YES |
+
+### 3.4 Forced transitions
+
+Any state → any state with `force=true`. Always recorded in `lifecycle_history` with timestamp and reason.
+
+### 3.5 Sandbox branch
+
+```
+implement ──▶ sandbox (experimentation) ──▶ implement (merge or discard)
+                                              └──▶ design/research (prototype feedback)
+```
+
+## 4. AXIOMS (NON-OVERRIDABLE)
+
+These axioms apply to ALL agents in ALL projects. Local AGENTS.md may add stricter constraints but never relax these.
+
+### 4.1 Git axioms
+- **No push**: agent never executes `git push` to any remote
+- **No merge to main without check**: agent never merges experiments or branches to main without explicit `@seja-check` approval
+- **Auto-commit after each step** (W5): `git add -A && git commit -m "step N: [title]"` — never accumulate uncommitted changes
+
+### 4.2 Decision axioms
+- **No delete**: agent never deletes decision records (`seja.decisions.delete()` does not exist)
+- **No edit**: agent never modifies existing decision records
+- **No constitution write**: agent never writes to constitution (`seja.constitution.write()` does not exist)
+- **No brief mutation**: agent never edits or deletes briefs (`seja.briefs.edit()` does not exist)
+
+### 4.3 Implementation axioms
+- **No implement without approved plan**: never execute implementation steps without `plan_id` where status = `approved`
+- **Checker between steps** (D16): step N+1 does not start without checker completion on step N (unless `checker: false` in plan)
+- **No read secrets**: agent never reads `/run/secrets/` — this is enforced at permission layer (A2)
+- **No push experiment branches**: never push experiment branches to remote (invariant 27)
+
+### 4.4 Invocation axioms
+- **Always log briefs**: every agent invocation must call `seja.briefs.log_started()` and `seja.briefs.log_done()`
+- **Always record telemetry**: every invocation must call `seja.telemetry.record_invocation()`
+- **Always present rationale**: every recommendation must include reasoning
+- **Always show alternatives**: every recommendation must show "recommended when" and "not recommended when"
+
+### 4.5 Security axioms
+- **Security wins by default**: security overrides performance and convenience
+- **Accessibility non-negotiable**: never trade accessibility against visual design or performance
+- **Document trade-offs**: when deferring a perspective, record the rationale
+
+## 5. CUSTOM COMMANDS
+
+13 commands installed at `~/.config/opencode/commands/`:
+
+| Command | Description | Routes to |
+|---------|-------------|-----------|
+| `/seja-plan` | Create or review execution plans | seja-planner |
+| `/seja-check` | Quality verification — modes: review, health, telemetry, semiotic | seja-check |
+| `/seja-debug` | Deep problem investigation | seja-oracle, seja-council |
+| `/seja-docs` | Generate technical documentation | seja-docs |
+| `/seja-triage` | Classify and route incoming requests | seja-triage |
+| `/seja-research` | Investigate technologies or solutions | seja-research |
+| `/seja-council` | Multi-perspective decision evaluation | seja-council |
+| `/seja-semiotic` | Evaluate semiotic coherence of the system | seja-semiotic |
+| `/seja-brief` | Generate context summary for session handover | seja-brief |
+| `/seja-boost` | Identify and apply performance optimizations | seja-boost |
+| `/seja-workspace` | Manage workspaces and worktrees | seja-workspace |
+| `/seja-status` | Report project state — lifecycle phase, pending items, health | seja-check, seja-chronicler |
+| `/seja-inspect` | Deep inspection of system state, decisions, or plans | seja-oracle, seja-chronicler |
+
+## 6. MCP CONFIGURATION
+
+### 6.1 Server
+
+- **Name**: `seja`
+- **Type**: `streamable-http`
+- **URL**: `http://localhost:8765/mcp`
+- **Health endpoint**: `http://localhost:8765/health`
+- **Enabled**: `true`
+
+### 6.2 Tool namespaces
+
+All tools are registered under the `seja.*` namespace:
+
+| Namespace | Purpose |
+|-----------|---------|
+| `seja.project.*` | Project detection, workspace context |
+| `seja.lifecycle.*` | FSM state management, phase transitions |
+| `seja.constitution.*` | Immutable principles (read-only for agents) |
+| `seja.perspectives.*` | Multi-archetype perspective queries |
+| `seja.plans.*` | Plan CRUD, step management, checker protocol |
+| `seja.decisions.*` | Decision record lookup (no write/delete) |
+| `seja.research.*` | Research report management |
+| `seja.briefs.*` | Invocation logging (append-only) |
+| `seja.pending.*` | Pending action queue |
+| `seja.telemetry.*` | Session telemetry |
+| `seja.journeys.*` | Journey map CRUD (designed + discovered) |
+| `seja.tests.*` | Test run recording and results |
+| `seja.council.*` | Multi-perspective debate engine |
+| `seja.semiotic.*` | Semiotic evaluation tools |
+| `seja.experiments.*` | Parallel exploration management |
+| `seja.design.*` | Design intent recording, feature state |
+
+### 6.3 Health check
+
+Every agent must verify MCP server connectivity before first tool call in a session.
+Failure: report `MCP CONNECTION FAILED` and stop. Do not retry automatically.
+
+## 7. SEMIOTIC ENGINEERING PRINCIPLES
+
+SEJA is founded on Semiotic Engineering (de Souza, 2005). Every agent operates within this framework.
+
+### 7.1 Three semiotic layers
+
+Every design artifact must be considered at all three layers:
+
+| Layer | What it is | Agent responsibility |
+|-------|------------|---------------------|
+| **Metalinguistic** | The system speaks about itself — help, tooltips, error messages, onboarding | Ensure every user-facing feature explains itself |
+| **Static** | The system at rest — layout, structure, menus, screen organization | Ensure structural clarity and navigability |
+| **Dynamic** | The system in transformation — transitions, animations, state changes | Ensure behavioral feedback is observable and interpretable |
+
+### 7.2 Communicability principle
+
+**Communicability** is the property of faithfully transmitting the designer's intent to the user. Agent-mediated development creates two metacommunication acts:
+
+1. **Designer → Agent**: intent communicated through constitution, design intent, metacommunication I/you, and decisions
+2. **Agent → User (via code)**: agent materializes intent into code that communicates the designer's intent
+
+**Spec-drift** is the semiotic failure when these two acts diverge. Agents must actively guard against spec-drift by:
+- Recording all decisions with rationale
+- Citing the design intent document before implementing
+- Testing for communicability gaps
+
+### 7.3 I/you metacommunication pattern
+
+Every design intent statement uses the I/you pattern:
+> "Eu projetei [X] para você porque [rationale]"
+
+This pattern makes the designer's voice explicit in the metacommunication chain and reduces spec-drift.
+
+### 7.4 Journey mapping requirement
+
+- All user-facing features REQUIRE a designed journey map (JM-TB) created by `seja.strategy.journeys.*`
+- All check phases MUST evaluate discovered journeys (JM-E) vs designed journeys
+- **Communicability gaps** between JM-TB and JM-E must be documented and resolved
+
+### 7.5 Perspectives inspection
+
+Every plan must be evaluated against relevant perspectives before implementation. The 16 available perspectives (D15):
+
+| Code | Perspective | Depth |
+|------|-------------|-------|
+| SEC | Security | essential |
+| PERF | Performance | essential |
+| DB | Data / Storage | essential |
+| API | API Design | essential |
+| ARCH | Architecture | essential |
+| DX | Developer Experience | standard |
+| I18N | Internationalization | standard |
+| TEST | Testability | essential |
+| OPS | Operations | standard |
+| COMPAT | Compatibility | extended |
+| DI | Dependency Injection | extended |
+| UX | User Experience | essential |
+| A11Y | Accessibility | essential |
+| VIS | Visual Design | extended |
+| RESP | Responsiveness | extended |
+| MICRO | Micro-optimizations | extended |
+
+Perspective selection is automatic based on plan type:
+- FEATURE-B (backend): SEC, DB, API, ARCH, TEST, PERF
+- FEATURE-F (frontend): UX, A11Y, VIS, RESP, I18N, TEST, MICRO
+- FEATURE-X (full-stack): SEC, DB, API, ARCH, UX, A11Y, I18N, TEST
+
+### 7.6 Designer is the decididor
+
+The harness proposes. The designer decides.
+- Never auto-accept recommendations
+- Always wait for explicit confirmation
+- Forced transitions (`force=true`) are permitted but must be logged
+
+### 7.7 Conflict resolution
+
+1. Security wins by default — overrides performance and convenience
+2. Accessibility is non-negotiable — never trade against visual design or performance
+3. Document the trade-off — when deferring a perspective, record the rationale
+4. Ask when uncertain — uncertainty is information, surface it

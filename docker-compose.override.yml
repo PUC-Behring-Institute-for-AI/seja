@@ -1,0 +1,8 @@
+version: "3.9"
+
+services:
+  seja:
+    volumes:
+      - ${SEJA_WORKSPACE_PATH:-./workspace}:/workspace
+    environment:
+      SEJA_WORKSPACE_PATH: ${SEJA_WORKSPACE_PATH:-/workspace}

@@ -1,0 +1,122 @@
+version: "3.9"
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  seja:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: seja
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${SEJA_MCP_PORT:-8765}:8765"
+      - "${SEJA_OPENCODE_PORT:-4096}:4096"
+    volumes:
+      - seja-state:/root/.seja-state
+      - seja-home:/root
+      - socket-proxy:/tmp/docker.sock:ro
+      - litestream-data:/data/replica
+    environment:
+      DOCKER_HOST: unix:///tmp/docker.sock
+      SEJA_DB_PATH: ${SEJA_DB_PATH:-/root/.seja-state/seja.db}
+      SEJA_RUN_MIGRATIONS: "true"
+      SEJA_BACKUP_S3_BUCKET: ${SEJA_BACKUP_S3_BUCKET:-}
+      SEJA_BACKUP_S3_ENDPOINT: ${SEJA_BACKUP_S3_ENDPOINT:-}
+      SEJA_BACKUP_S3_REGION: ${SEJA_BACKUP_S3_REGION:-}
+      SEJA_BACKUP_S3_ACCESS_KEY_ID: ${SEJA_BACKUP_S3_ACCESS_KEY_ID:-}
+      SEJA_BACKUP_S3_SECRET_ACCESS_KEY: ${SEJA_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      LITESTREAM_REPLICA_URL: ${LITESTREAM_REPLICA_URL:-file:///data/replica}
+      SEJA_TIER_REASON: ${SEJA_TIER_REASON:-anthropic/claude-opus-4-5}
+      SEJA_TIER_CODE: ${SEJA_TIER_CODE:-anthropic/claude-sonnet-4-5}
+      SEJA_TIER_FAST: ${SEJA_TIER_FAST:-anthropic/claude-haiku-4-5}
+    env_file:
+      - path: ./seja.env
+        required: false
+    depends_on:
+      socket-proxy:
+        condition: service_healthy
+      litestream:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8765/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging: *default-logging
+
+  socket-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: seja-socket-proxy
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - socket-proxy:/tmp/docker.sock
+    environment:
+      CONTAINERS: 1
+      ALLOW_START: 1
+      ALLOW_STOP: 1
+      POST: 0
+      EXEC: 0
+      IMAGES: 0
+      INFO: 1
+      VERSION: 1
+      NETWORKS: 0
+      TAGS: 0
+    read_only: true
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2375"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging: *default-logging
+
+  litestream:
+    image: litestream/litestream:latest
+    container_name: seja-litestream
+    restart: unless-stopped
+    volumes:
+      - seja-state:/data/seja-state:rw
+      - litestream-data:/data/replica
+    environment:
+      LITESTREAM_REPLICA_URL: ${LITESTREAM_REPLICA_URL:-file:///data/replica}
+      LITESTREAM_ACCESS_KEY_ID: ${SEJA_BACKUP_S3_ACCESS_KEY_ID:-}
+      LITESTREAM_SECRET_ACCESS_KEY: ${SEJA_BACKUP_S3_SECRET_ACCESS_KEY:-}
+      SEJA_BACKUP_S3_ENDPOINT: ${SEJA_BACKUP_S3_ENDPOINT:-}
+      SEJA_BACKUP_S3_REGION: ${SEJA_BACKUP_S3_REGION:-}
+      SEJA_BACKUP_S3_BUCKET: ${SEJA_BACKUP_S3_BUCKET:-}
+    configs:
+      - source: litestream_config
+        target: /etc/litestream.yml
+    command: ["replicate", "-config", "/etc/litestream.yml"]
+    healthcheck:
+      test: ["CMD", "litestream", "databases"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging: *default-logging
+
+configs:
+  litestream_config:
+    file: ./Docker/litestream.yml
+    name: litestream-config-${LITESTREAM_CONFIG_VERSION:-1}
+
+volumes:
+  seja-state:
+  seja-home:
+  socket-proxy:
+  litestream-data:

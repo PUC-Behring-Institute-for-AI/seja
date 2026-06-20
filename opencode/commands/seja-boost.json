@@ -1,0 +1,11 @@
+{
+  "name": "seja-boost",
+  "description": "Identify performance bottlenecks",
+  "command": "seja-boost",
+  "triggers": {
+    "agent": "seja-boost",
+    "type": "agent"
+  },
+  "expects": "optional focus area",
+  "instructions": "Analyze the project for performance bottlenecks and produce optimization suggestions.\n\n## Focus Areas\n- **build** → build times, compilation, bundling\n- **runtime** → application performance, response times, memory usage\n- **tests** → test execution speed, CI pipeline bottlenecks\n- **code** → code-level performance anti-patterns, N+1 queries, unnecessary allocations\n- **dx** → developer experience friction, slow feedback loops\n- **full** → comprehensive analysis across all areas\n\n## Workflow\n1. seja.project.detect() → identify active project\n2. seja.telemetry.query_telemetry(days=30) → analyze telemetry for performance patterns\n3. seja.telemetry.get_anomalies() → check for recorded anomalies\n4. Collect relevant metrics based on focus area:\n   - Build tooling output and timing\n   - Test suite runtime distribution\n   - Application profiling data if available\n   - Git history size and commit patterns\n   - Dependency tree size and redundancy\n5. Identify top 3 bottlenecks ranked by impact\n\n## Analysis Output\nFor each bottleneck identified:\n- **Category**: which focus area\n- **Evidence**: data supporting the identification\n- **Impact**: estimated improvement if resolved\n- **Effort**: estimated implementation complexity (low/medium/high)\n- **Recommendation**: specific actionable change\n- **Prerequisites**: what must be in place before attempting\n\n## Focus Area\n$ARGUMENTS"
+}

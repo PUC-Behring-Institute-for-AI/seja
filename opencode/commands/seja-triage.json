@@ -1,0 +1,11 @@
+{
+  "name": "seja-triage",
+  "description": "Classify and route incoming requests",
+  "command": "seja-triage",
+  "triggers": {
+    "agent": "seja-triage",
+    "type": "agent"
+  },
+  "expects": "raw input to classify",
+  "instructions": "Classify the incoming raw input and determine the optimal routing within the SEJA system.\n\n## Classification Dimensions\n1. **Task type**: bug | feature | research | question | documentation | planning | review | design-decision | experiment | other\n2. **Urgency**: critical | high | normal | low\n3. **Scope**: project | harness | external\n4. **Phase fit**: which FSM phase this maps to\n5. **Agent routing**: which SEJA agent should handle this\n\n## Routing Rules\n- Bug or anomaly → route to /seja-debug or @seja-code-reviewer\n- Feature request → route to /seja-plan with design context\n- Research question → route to /seja-research or @seja-research\n- Documentation → route to /seja-docs or @seja-doc-generator\n- Planning task → route to /seja-plan or @seja-plan\n- Design decision → route to @seja-design\n- Code review → route to @seja-code-reviewer\n- Performance concern → route to /seja-boost\n- Uncertainty → ask one clarifying question before routing\n\n## Workflow\n1. Analyze input for intent, domain, complexity, and urgency\n2. Cross-reference with current project phase (seja.lifecycle.get_current_phase())\n3. Check for relevant past decisions (seja.decisions.search_decisions())\n4. Produce routing recommendation with confidence score\n\n## Input\n$ARGUMENTS\n\nReturn: { classification, recommended_agent, alternative_routes, confidence, rationale }"
+}
