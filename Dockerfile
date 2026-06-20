@@ -1,4 +1,4 @@
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir /build/mcp/ && \
 COPY scripts/seja /usr/local/bin/seja
 RUN chmod +x /usr/local/bin/seja
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
