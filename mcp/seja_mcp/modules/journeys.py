@@ -63,7 +63,7 @@ def register_tools(mcp):
                 (workspace_path,),
             )
 
-            journey_types = {}
+            journey_types: dict[str, int] = {}
             gaps = []
             for row in cursor:
                 jt = row["journey_type"]

@@ -29,7 +29,13 @@ def get_db_path(workspace_path: str = "") -> str:
 @asynccontextmanager
 async def get_db(workspace_path: str = ""):
     db_path = get_db_path(workspace_path)
-    if db_path not in _connection_pool or _connection_pool[db_path].closed:
+    if db_path not in _connection_pool:
+        pass
+    else:
+        try:
+            await _connection_pool[db_path].execute("SELECT 1")
+        except Exception:
+            del _connection_pool[db_path]
         conn = await aiosqlite.connect(db_path)
         conn.row_factory = aiosqlite.Row
         for pragma in PRAGMAS:
