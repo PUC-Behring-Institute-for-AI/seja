@@ -156,7 +156,7 @@ jobs:
           output: trivy-fs.sarif
           severity: HIGH,CRITICAL
 
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-fs.sarif
 
@@ -168,6 +168,6 @@ jobs:
           output: trivy-image.sarif
           severity: HIGH,CRITICAL
 
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-image.sarif
