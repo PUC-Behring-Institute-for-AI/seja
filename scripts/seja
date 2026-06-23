@@ -181,6 +181,9 @@ wait_health() {
     elapsed=$((elapsed + interval))
   done
   log_err "Timeout waiting for ${container} to become healthy"
+  log_info "Container logs (last 30 lines):"
+  docker logs --tail 30 "${container}" 2>/dev/null || log_warn "Could not retrieve logs"
+  log_info "Run '${SCRIPT_NAME} logs ${container}' for full output"
   return 1
 }
 

@@ -822,6 +822,47 @@ seja restart
 
 ---
 
+### Container starts but never becomes healthy
+
+```bash
+# Error: "Timeout waiting for seja to become healthy"
+# Root cause: the MCP server failed to start inside the container
+
+# 1. Check container logs
+seja logs seja --tail 30
+
+# 2. Common failure: missing database migration module
+#    Error: "ModuleNotFoundError: No module named 'seja_mcp.db.migrate'"
+#    Fix: update to SEJA v2.1.5+ (this bug was fixed)
+
+# 3. Check if the container is running at all
+docker ps -a --filter name=seja
+
+# 4. If the container exited, inspect the exit code
+docker inspect seja --format 'ExitCode: {{.State.ExitCode}} / {{.State.Status}}'
+
+# 5. Try restarting
+seja restart
+```
+
+**Root cause:** The container entrypoint runs database migrations then starts the MCP server on port 8765. If either step fails (missing module, corrupt database, port conflict), the container starts but healthcheck never succeeds because the health endpoint is not listening.
+
+**Diagnostic flow:**
+```
+seja start
+  → Container starts
+  → Entrypoint runs migrations (python -m seja_mcp.db.migrate)
+  → Entrypoint renders agent templates (envsubst)
+  → Entrypoint starts MCP server (python -m seja_mcp.server)
+  → MCP server listens on :8765/health
+  → Docker healthcheck: curl -f http://localhost:8765/health
+  → "healthy"
+```
+
+If any step fails, `seja logs seja` will show the error.
+
+---
+
 ### `seja setup` fails with image pull error
 
 ```bash
