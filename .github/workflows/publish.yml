@@ -105,8 +105,7 @@ jobs:
       - name: Sign CLI script
         run: |
           cosign sign-blob scripts/seja \
-            --b64 \
-            --output-signature scripts/seja.sig \
+            --bundle scripts/seja.sig \
             --yes
 
       - uses: anchore/sbom-action@v0.24.0
