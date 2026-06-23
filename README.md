@@ -1,11 +1,11 @@
-# SEJA v2.1.0
+# SEJA v2.1.4
 
 > **S**emiotic **E**ngineering **J**ourneys with **A**gents  
 > Governance harness for structured agentic development over OpenCode + Docker
 
 [![CI](https://github.com/PUC-Behring-Institute-for-AI/seja/actions/workflows/publish.yml/badge.svg)](https://github.com/PUC-Behring-Institute-for-AI/seja/actions/workflows/publish.yml)
 [![codecov](https://codecov.io/gh/PUC-Behring-Institute-for-AI/seja/branch/main/graph/badge.svg)](https://codecov.io/gh/PUC-Behring-Institute-for-AI/seja)
-[![Docker Pulls](https://img.shields.io/docker/pulls/pucbehring/seja)](https://ghcr.io/puc-behring-institute-for-ai/seja)
+[![GHCR Downloads](https://img.shields.io/badge/ghcr-puc--behring--institute--for--ai%2Fseja-blue?logo=github)](https://github.com/orgs/PUC-Behring-Institute-for-AI/packages/container/seja)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ---
@@ -22,6 +22,9 @@
 - [MCP Server](#mcp-server)
 - [Security](#security)
 - [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [S3 Backup Configuration](#s3-backup-configuration)
 - [Reference](#reference)
 - [License](#license)
 
@@ -65,7 +68,7 @@ flowchart LR
     C -->|export| G
     
     B --> C
-    D -->|GET only| H[/var/run/docker.sock]
+    D -->|GET only| H["/var/run/docker.sock"]
 ```
 
 ### Core Concepts
@@ -124,7 +127,7 @@ graph TB
 
     S1 -->|seja.db + WAL| V1
     S1 -->|Docker API via proxy| S2
-    S2 -->|/var/run/docker.sock:ro| D[/var/run/docker.sock]
+    S2 -->|"/var/run/docker.sock:ro"| D["/var/run/docker.sock"]
     S3 -->|replicate| V1
     S3 -->|snapshots| V3
     
@@ -217,13 +220,19 @@ graph LR
 
 ### Prerequisites
 
-| Requirement | Version | Check |
-|-------------|---------|-------|
-| Docker | 24+ | `docker --version` |
-| Docker Compose | v2.24+ | `docker compose version` |
-| Git | 2.40+ | `git --version` |
-| Bash | 4+ | `bash --version` |
-| curl | 7+ | `curl --version` |
+| Requirement | Version | Check | Notes |
+|-------------|---------|-------|-------|
+| Docker | 24+ | `docker --version` | Install: [docs.docker.com/get-docker](https://docs.docker.com/get-docker) |
+| Docker Compose | v2.24+ | `docker compose version` | Included with Docker Desktop; on Linux install separately |
+| Git | 2.40+ | `git --version` | |
+| Bash | 4+ | `bash --version` | macOS: pre-installed; Linux: `apt install bash` |
+| curl | 7+ | `curl --version` | |
+| API Key (Anthropic) | — | `export ANTHROPIC_API_KEY=sk-...` | Required for OpenCode agent runtime. [console.anthropic.com](https://console.anthropic.com) |
+
+**Platform notes:**
+- **Linux**: Native Docker engine. Ensure your user is in the `docker` group: `sudo usermod -aG docker $USER && newgrp docker`
+- **macOS**: Docker Desktop required. The host `/var/run/docker.sock` is mounted read-only via socket-proxy.
+- **Windows**: Use WSL2 with Docker Desktop WSL2 backend. Run SEJA inside a WSL2 distribution.
 
 ### Option A: One-liner (recommended)
 
@@ -237,7 +246,7 @@ seja setup
 
 ```bash
 # Download from GitHub Releases
-VERSION="v2.1.0"
+VERSION="v2.1.4"
 curl -fsSL "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/download/${VERSION}/seja" \
   -o /usr/local/bin/seja
 chmod +x /usr/local/bin/seja
@@ -270,11 +279,27 @@ seja setup --image ghcr.io/puc-behring-institute-for-ai/seja:latest
 
 ### Verification
 
+After installation, run the diagnostics suite:
+
 ```bash
 seja doctor
 ```
 
-This checks: Docker daemon, compose version, MCP port availability, git config, disk space, cosign public key.
+Expected output example:
+
+```
+✓ Docker daemon running (24.0.7)
+✓ Docker Compose v2.24+ found
+✓ Port 8765 available (MCP)
+✓ Port 4096 available (OpenCode)
+✓ Git 2.40+ configured
+✓ Disk space OK (15GB free)
+✓ Cosign public key found at ~/.seja/cosign.pub
+```
+
+`seja doctor` checks: Docker daemon, compose version, MCP/OpenCode port availability, git config, disk space, cosign public key.
+
+If any check fails, see [Troubleshooting](#troubleshooting) for solutions.
 
 ### Directory Structure
 
@@ -621,7 +646,7 @@ cosign verify ghcr.io/puc-behring-institute-for-ai/seja:latest \
 cosign verify-blob \
   --certificate-identity "https://github.com/PUC-Behring-Institute-for-AI/seja/.github/workflows/publish.yml@refs/tags/v*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  --bundle scripts/seja.bundle \
+  --bundle scripts/seja.sig \
   scripts/seja
 ```
 
@@ -740,17 +765,398 @@ make release    # test → build → sign → push → sign-blob
 | Resource | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Complete architectural specification (3748 lines, 23 sections) |
-| [AGENTS.md.global](opencode/AGENTS.md.global) | Global SEJA governance framework for OpenCode (295 lines, 8 sections) |
+| [AGENTS.md.global](opencode/AGENTS.md.global) | Global SEJA governance framework for OpenCode |
 | [Agent templates](opencode/agents/) | 16 agent `.md.tpl` files with envsubst variable injection |
 | [Custom commands](opencode/commands/) | 13 `/seja-*` command definitions |
 | [OpenCode config](opencode/opencode.json.tpl) | MCP server URL, agent model assignments, plugins, providers |
 | [Project templates](project-template/.seja/) | `.seja/` scaffold: constitution, decisions, plans, designs, briefs |
+| [Docker Compose](docker-compose.yml) | 3-service compose file (seja, socket-proxy, litestream) |
+| [Makefile](Makefile) | 22 targets: build, test, lint, release |
+| [MCP modules](mcp/seja_mcp/modules/) | 15 MCP tool modules (decisions, lifecycle, plans, etc.) |
+| [Test suites](tests/) | Unit (FSM) + Integration (schema) + Invariants (security) |
 
 ### Bibliography
 
 - de Souza, C. S. (2005). *The Semiotic Engineering of Human-Computer Interaction*. MIT Press.
 - de Souza, C. S., & Leitão, C. F. (2009). *Semiotic Engineering Methods for Scientific Research in HCI*. Morgan & Claypool.
 - Norman, D. A. (2013). *The Design of Everyday Things*. Basic Books. (Conceptual model alignment, metacommunication)
+
+---
+
+## Troubleshooting
+
+### Docker: command not found or permission denied
+
+```bash
+# Check Docker is running
+docker info
+
+# Permission denied? Add user to docker group
+sudo usermod -aG docker $USER
+newgrp docker
+
+# macOS: ensure Docker Desktop is running (menu bar icon)
+# Windows: ensure WSL2 integration is enabled in Docker Desktop settings
+```
+
+**Root cause:** SEJA requires a running Docker daemon with socket access. The container uses a socket-proxy with ACL — it never accesses the socket directly.
+
+---
+
+### Port conflict (8765 or 4096 already in use)
+
+```bash
+# Check what is using the port
+lsof -i :8765
+lsof -i :4096
+
+# Change SEJA ports via .env
+echo "SEJA_MCP_PORT=18765" >> ~/.seja/.env
+echo "SEJA_OPENCODE_PORT=14096" >> ~/.seja/.env
+seja restart
+```
+
+**Root cause:** SEJA binds ports 8765 (MCP) and 4096 (OpenCode) on the host. If another service uses these ports, change them in `~/.seja/.env` before starting.
+
+---
+
+### `seja setup` fails with image pull error
+
+```bash
+# Retry with verbose output
+seja setup --no-pull
+
+# Then pull manually
+docker pull ghcr.io/puc-behring-institute-for-ai/seja:latest
+
+# Check GitHub Packages authentication
+echo $GITHUB_TOKEN  # Set if pulling from private registry
+```
+
+**Root cause:** GHCR images require authentication for some configurations. If behind a corporate proxy, configure `~/.docker/config.json` or set `$DOCKER_CONFIG`.
+
+---
+
+### MCP server not responding (`seja status` shows unhealthy)
+
+```bash
+# Check container logs
+seja logs seja --tail 50
+
+# Verify the MCP server started
+seja exec curl -f http://localhost:8765/health
+
+# Check if migrations ran
+seja exec ls -la /root/.seja-state/seja.db
+
+# Restart services
+seja restart
+```
+
+**Common causes:**
+- First startup: migrations need a few seconds — wait 10s and retry
+- Disk full: `seja doctor` reports disk space
+- Corrupted database: `seja verify` checks integrity; `seja restore` can recover
+- Socket proxy not ready: `seja logs socket-proxy` for connection errors
+
+---
+
+### `seja update` fails with signature verification error
+
+```bash
+# Check current cosign public key
+cat ~/.seja/cosign.pub
+
+# Re-download the public key
+curl -fsSL -o ~/.seja/cosign.pub \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/cosign.pub"
+
+# Manual cosign verification
+cosign verify ghcr.io/puc-behring-institute-for-ai/seja:latest \
+  --certificate-identity "https://github.com/PUC-Behring-Institute-for-AI/seja/.github/workflows/publish.yml@refs/tags/v*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
+**Root cause:** SEJA uses cosign keyless signing (GitHub OIDC). The certificate identity must match the exact workflow path and tag pattern. If the public key file is outdated, re-download it.
+
+---
+
+### Litestream replica errors
+
+```bash
+# Check litestream logs
+seja logs litestream --tail 20
+
+# Default (local) replica works out of the box
+# For S3: verify credentials in ~/.seja/.env
+grep SEJA_BACKUP_S3 ~/.seja/.env
+```
+
+**Root cause:** Default replica URL is `file:///data/replica` (local, works without configuration). S3 requires `SEJA_BACKUP_S3_BUCKET` and AWS credentials. See [S3 Backup Configuration](#s3-backup-configuration).
+
+---
+
+### Workspace not found
+
+```bash
+# List registered workspaces
+seja workspace list
+
+# Add a workspace
+seja workspace add /path/to/project
+
+# Verify workspace
+ls /path/to/project/.seja/  # Should contain constitution, designs/, etc.
+```
+
+**Root cause:** Each project must be initialized with `seja init` or added via `seja workspace add`. The container mounts workspaces via `docker-compose.override.yml` — workspaces not registered are invisible inside the container.
+
+---
+
+### Agent reports "permission denied" or "tool not available"
+
+```
+# Example error from agent
+"Error: bash command 'git push' is not in the allow-list for this agent"
+```
+
+**This is expected by design.** SEJA enforces agent capabilities via `bash.allow` lists:
+- **REASON-tier agents** (strategy, architect, check, council, etc.) are read-only — they observe and recommend, never modify.
+- **`git push` is denied for all agents** — pushes happen only via CI/CD or manual CLI.
+- **REASON and CODE agents** have scoped write access: only workspace files, never system files.
+
+To give an agent access to a specific command, modify its `.md.tpl` file in `opencode/agents/`.
+
+---
+
+### Container exits immediately
+
+```bash
+# Check exit code
+docker inspect seja --format '{{.State.ExitCode}}'
+
+# View exit logs
+seja logs seja --tail 30
+```
+
+**Common causes:**
+- Entrypoint script error: check `Docker/entrypoint.sh` in the source repo
+- Missing environment variables: verify `~/.seja/.env`
+- Port already in use inside container: rare, restart usually resolves
+
+---
+
+### `seja` CLI script not found after install
+
+```bash
+# Reinstall
+curl -fsSL -o /usr/local/bin/seja \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja"
+chmod +x /usr/local/bin/seja
+
+# Or add to PATH manually
+export PATH=$PATH:/usr/local/bin
+```
+
+---
+
+## FAQ
+
+### Do I need an Anthropic API key?
+
+**Yes.** SEJA uses OpenCode as the agent runtime, which requires an Anthropic API key. Set it as an environment variable:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+You can also add it to `~/.seja/.env` for persistence:
+
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> ~/.seja/.env
+```
+
+Get an API key at [console.anthropic.com](https://console.anthropic.com).
+
+---
+
+### Can I use models other than Claude?
+
+**Yes.** SEJA supports any model provider that OpenCode supports (OpenAI, Google, AWS Bedrock, etc.). Change the tier models in `.env`:
+
+```bash
+echo 'SEJA_TIER_REASON=openai/gpt-4o' >> ~/.seja/.env
+echo 'SEJA_TIER_CODE=openai/gpt-4o-mini' >> ~/.seja/.env
+echo 'SEJA_TIER_FAST=openai/gpt-4o-mini' >> ~/.seja/.env
+```
+
+Format: `<provider>/<model>` (OpenCode model identifier). The corresponding API key (`OPENAI_API_KEY`, `GOOGLE_API_KEY`, etc.) must be set.
+
+---
+
+### Does SEJA need a GPU?
+
+**No.** SEJA is CPU-only. The agent runtime calls external LLM APIs — all computation happens on the API provider's servers.
+
+---
+
+### How do I make backups?
+
+**Automatic:** Litestream replicates the SQLite database continuously:
+
+```bash
+# Local replica (default, no config needed)
+# Replicas stored in ~/.seja/backups/litestream/
+
+# Manual snapshot
+seja backup
+
+# List available snapshots
+ls ~/.seja/backups/litestream/
+```
+
+**S3 backup:** See [S3 Backup Configuration](#s3-backup-configuration).
+
+**Restore:**
+```bash
+seja restore <snapshot-path>
+```
+
+---
+
+### How do I completely uninstall SEJA?
+
+```bash
+# 1. Stop services
+seja stop
+
+# 2. Remove runtime directory
+rm -rf ~/.seja
+
+# 3. Remove the CLI binary
+rm /usr/local/bin/seja
+
+# 4. (Optional) Remove Docker images
+docker rmi ghcr.io/puc-behring-institute-for-ai/seja:latest
+
+# 5. (Optional) Remove Docker volumes
+docker volume rm seja_seja-state seja_seja-home seja_socket-proxy seja_litestream-data
+```
+
+---
+
+### Is SEJA compatible with macOS and Windows?
+
+- **macOS:** ✅ Fully supported via Docker Desktop. Tested on macOS 14+ (Sonoma/Sequoia).
+- **Windows:** ✅ Supported via WSL2 with Docker Desktop WSL2 backend. Run all SEJA commands inside the WSL2 distribution.
+- **Linux:** ✅ Native support. Tested on Ubuntu 22.04+ and Debian 12+.
+
+The `seja` CLI script is tested on Bash 4+ (macOS pre-installed Bash is version 3 — install via Homebrew if needed: `brew install bash`).
+
+---
+
+### How many agents run at the same time?
+
+**One at a time.** OpenCode uses a tab-based interface where agents are invoked sequentially. The SEJA agent system has 16 agents, but only one is active per conversation turn (tab-automatic agents activate based on context). Hidden agents (`/seja-*` commands) run on demand.
+
+---
+
+### How do I change the ports SEJA uses?
+
+Edit `~/.seja/.env`:
+
+```bash
+SEJA_MCP_PORT=18765       # Default: 8765
+SEJA_OPENCODE_PORT=14096   # Default: 4096
+```
+
+Then restart:
+```bash
+seja restart
+```
+
+---
+
+### Can I use SEJA without OpenCode?
+
+**Not recommended.** SEJA's governance layer (agent templates, FSM lifecycle, MCP tools) is designed specifically for the OpenCode agent runtime. While the MCP server could technically work with any MCP-compatible client (like Claude Desktop), the agent governance system, lifecycle FSM, and bash allow-lists are OpenCode-specific.
+
+---
+
+## S3 Backup Configuration
+
+Litestream can replicate SQLite WAL changes to S3-compatible storage for disaster recovery.
+
+### Minimal S3 Setup
+
+```bash
+# 1. Create an S3 bucket (AWS CLI example)
+aws s3 mb s3://seja-backups --region us-east-1
+
+# 2. Add lifecycle policy for cost management
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket seja-backups \
+  --lifecycle-configuration '{
+    "Rules": [{
+      "ID": "expire-old-backups",
+      "Status": "Enabled",
+      "Expiration": { "Days": 90 },
+      "Filter": {}
+    }]
+  }'
+
+# 3. Create IAM user with programmatic access and this policy:
+# {
+#   "Version": "2012-10-17",
+#   "Statement": [
+#     {
+#       "Effect": "Allow",
+#       "Action": ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+#       "Resource": ["arn:aws:s3:::seja-backups", "arn:aws:s3:::seja-backups/*"]
+#     }
+#   ]
+# }
+```
+
+### Configure SEJA
+
+Add these to `~/.seja/.env`:
+
+```bash
+SEJA_BACKUP_S3_BUCKET=seja-backups
+SEJA_BACKUP_S3_REGION=us-east-1
+SEJA_BACKUP_S3_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+SEJA_BACKUP_S3_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+```
+
+### Verify replication
+
+```bash
+# Restart to pick up S3 config
+seja restart
+
+# Check litestream logs for successful replication
+seja logs litestream --tail 10
+
+# Expected output:
+# "litestream: replicate: snapshot created" (every 10 minutes by default)
+
+# List S3 snapshots
+aws s3 ls s3://seja-backups/
+```
+
+### Restore from S3
+
+```bash
+# Stop services first
+seja stop
+
+# List available snapshots
+aws s3 ls s3://seja-backups/
+
+# Restore
+seja restore s3://seja-backups/<snapshot-path>
+```
 
 ---
 
