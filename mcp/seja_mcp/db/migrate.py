@@ -1,7 +1,6 @@
 """CLI entry point for database migrations."""
 import asyncio
 import os
-import sys
 
 from seja_mcp.db.schema import run_migrations
 
