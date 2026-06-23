@@ -86,10 +86,10 @@ flowchart LR
 ## Quick Start
 
 ```bash
-# 1. Install the CLI
-curl -fsSL -o /usr/local/bin/seja \
+# 1. Install the CLI (sudo required for /usr/local/bin)
+sudo curl -fsSL -o /usr/local/bin/seja \
   "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja"
-chmod +x /usr/local/bin/seja
+sudo chmod +x /usr/local/bin/seja
 
 # 2. Setup (~/.seja/ structure + image pull)
 seja setup
@@ -237,23 +237,25 @@ graph LR
 ### Option A: One-liner (recommended)
 
 ```bash
-curl -fsSL https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja \
-  -o /usr/local/bin/seja && chmod +x /usr/local/bin/seja
+sudo curl -fsSL -o /usr/local/bin/seja \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja" \
+  && sudo chmod +x /usr/local/bin/seja
 seja setup
 ```
 
 ### Option B: Manual download
 
 ```bash
-# Download from GitHub Releases
+# Download from GitHub Releases (sudo required for /usr/local/bin)
 VERSION="v2.1.4"
-curl -fsSL "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/download/${VERSION}/seja" \
-  -o /usr/local/bin/seja
-chmod +x /usr/local/bin/seja
+sudo curl -fsSL -o /usr/local/bin/seja \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/download/${VERSION}/seja"
+sudo chmod +x /usr/local/bin/seja
 
-# Download cosign public key
-curl -fsSL "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/download/${VERSION}/cosign.pub" \
-  -o ~/.seja/cosign.pub
+# Download cosign public key (to home dir, no sudo)
+mkdir -p ~/.seja
+curl -fsSL -o ~/.seja/cosign.pub \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/download/${VERSION}/cosign.pub"
 
 # Initialize
 seja setup --image "ghcr.io/puc-behring-institute-for-ai/seja:${VERSION}"
@@ -946,16 +948,40 @@ seja logs seja --tail 30
 
 ---
 
+### Permission denied writing to `/usr/local/bin/seja`
+
+```bash
+# Error: "Failure writing output to destination" or "Permission denied"
+# Root cause: /usr/local/bin is owned by root; write requires sudo
+
+# Fix: run curl with sudo
+sudo curl -fsSL -o /usr/local/bin/seja \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja"
+sudo chmod +x /usr/local/bin/seja
+
+# Alternative: install to ~/.local/bin (no sudo needed)
+mkdir -p ~/.local/bin
+curl -fsSL -o ~/.local/bin/seja \
+  "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja"
+chmod +x ~/.local/bin/seja
+# Add to PATH
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+---
+
 ### `seja` CLI script not found after install
 
 ```bash
-# Reinstall
-curl -fsSL -o /usr/local/bin/seja \
+# Reinstall with sudo
+sudo curl -fsSL -o /usr/local/bin/seja \
   "https://github.com/PUC-Behring-Institute-for-AI/seja/releases/latest/download/seja"
-chmod +x /usr/local/bin/seja
+sudo chmod +x /usr/local/bin/seja
 
-# Or add to PATH manually
-export PATH=$PATH:/usr/local/bin
+# Or if installed to ~/.local/bin, ensure it's on PATH
+export PATH="$HOME/.local/bin:$PATH"
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
 ```
 
 ---
