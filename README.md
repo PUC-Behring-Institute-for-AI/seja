@@ -733,11 +733,13 @@ make build
 make release    # test → build → sign → push → sign-blob
 ```
 
-### Makefile Targets (22)
+### Makefile Targets (24)
 
 | Target | Description |
 |--------|-------------|
 | `build` | Build Docker image (multi-platform) |
+| `build-local` | Build single-arch dev image (fast, no buildx) |
+| `test-local` | Build + start + await health + show logs |
 | `push` | Push image to GHCR |
 | `sign` | Sign image with cosign (keyless) |
 | `sign-blob` | Sign CLI script with cosign |
@@ -759,6 +761,44 @@ make release    # test → build → sign → push → sign-blob
 | `version` | Show current version |
 | `security-scan` | Run trivy or grype |
 | `help` | Show all targets |
+
+### Local Development Workflow
+
+Test changes locally before committing to save CI iteration time:
+
+```bash
+# 1. Build fast single-arch image and test container health
+make test-local
+
+# 2. If healthy, lint and run test suites
+make validate
+
+# 3. If all pass, commit and push
+git add -A && git commit -m "fix: ..."
+git push origin main
+
+# 4. Tag for release (triggers CI multi-arch build + GHCR push)
+git tag v2.1.6
+git push origin v2.1.6
+```
+
+The `make test-local` target builds a single-arch image (`seja:dev`), starts the container with `docker compose`, waits 15s for the healthcheck, and reports the container status. If unhealthy, it shows the last 30 log lines for diagnosis.
+
+To manually inspect a local build:
+
+```bash
+# Build dev image
+make build-local
+
+# Start with local image
+SEJA_IMAGE=seja:dev docker compose up -d
+
+# Watch health
+docker compose logs -f seja
+
+# Stop when done
+docker compose down
+```
 
 ---
 

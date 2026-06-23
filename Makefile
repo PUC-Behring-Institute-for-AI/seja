@@ -1,9 +1,10 @@
 IMAGE_NAME ?= ghcr.io/puc-behring-institute-for-ai/seja
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+SEJA_DEV_TAG ?= seja:dev
 DOCKER_BUILDKIT := 1
 COMPOSE_FILE := docker-compose.yml
 
-.PHONY: help build test test-unit test-integration test-invariants lint typecheck format clean install-dev install image push sign sign-blob verify validate release changelog version security-scan
+.PHONY: help build build-local test test-unit test-integration test-invariants test-local lint typecheck format clean install-dev install image push sign sign-blob verify validate release changelog version security-scan
 
 help:
 	@echo 'SEJA — Makefile'
@@ -19,6 +20,37 @@ build: ## Build Docker image with version tag
 		--cache-from type=registry,ref=$(IMAGE_NAME):buildcache \
 		--cache-to type=registry,ref=$(IMAGE_NAME):buildcache,mode=max \
 		-f Dockerfile .
+
+build-local: ## Build single-arch dev image (fast, local testing)
+	docker build -t $(SEJA_DEV_TAG) -f Dockerfile .
+
+test-local: build-local ## Build and test container locally
+	@echo "=== Starting test container ==="
+	docker rm -f seja-test 2>/dev/null; \
+	docker run -d --name seja-test \
+		-e SEJA_RUN_MIGRATIONS=true \
+		-e SEJA_DB_PATH=/tmp/seja-test.db \
+		-p 18765:8765 \
+		$(SEJA_DEV_TAG) >/dev/null 2>&1
+	@echo "Waiting 10s for server startup..."
+	@sleep 10
+	@echo ""
+	@echo "=== Healthcheck ==="
+	@STATUS=$$(docker inspect seja-test --format '{{.State.Health.Status}}' 2>/dev/null || echo "not_found"); \
+	echo "Container status: $$STATUS"
+	@echo ""
+	@echo "=== HTTP Health Endpoint ==="
+	@curl -sf http://localhost:18765/health && echo "" || echo "(endpoint not responding yet)"
+	@echo ""
+	@echo "=== Container Logs ==="
+	@docker logs seja-test 2>&1 | tail -30
+	@echo ""
+	@docker inspect seja-test --format '{{.State.Health.Status}}' 2>/dev/null | grep -q healthy && \
+		echo "✓ Container is healthy" || \
+		( echo "✗ Container is not healthy"; docker logs seja-test 2>&1 | tail -10; \
+		docker rm -f seja-test >/dev/null 2>&1; exit 1 )
+	@docker rm -f seja-test >/dev/null 2>&1
+	@echo "✓ Test passed"
 
 test: test-unit test-integration test-invariants ## Run all test suites
 

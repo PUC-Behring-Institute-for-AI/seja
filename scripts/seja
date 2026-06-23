@@ -15,7 +15,7 @@ IFS=$'\n\t'
 # ──────────────────────────────────────────────
 # Metadata
 # ──────────────────────────────────────────────
-SEJA_SCRIPT_VERSION="2.1.1"
+SEJA_SCRIPT_VERSION="2.1.5"
 SEJA_SEJA_DIR="${HOME}/.seja"
 SEJA_ENV_FILE="${SEJA_SEJA_DIR}/.env"
 SEJA_WORKSPACES_CONF="${SEJA_SEJA_DIR}/workspaces.conf"
@@ -222,7 +222,6 @@ emit_json() {
 # ──────────────────────────────────────────────
 generate_compose_file() {
   cat > "${SEJA_COMPOSE_FILE}" << 'COMPOSE_EOF'
-version: "3.9"
 services:
   seja:
     image: ${SEJA_IMAGE}
@@ -886,8 +885,12 @@ cmd_update() {
 
       # Replace script atomically
       chmod +x "${tmp_script}"
-      mv "${tmp_script}" "$0"
-      log_ok "Script updated to new version"
+      if mv "${tmp_script}" "$0" 2>/dev/null; then
+        log_ok "Script updated to new version"
+      else
+        sudo mv "${tmp_script}" "$0"
+        log_ok "Script updated to new version (with sudo)"
+      fi
 
       # Clean up old backups (keep last 5)
       local -a backups=()

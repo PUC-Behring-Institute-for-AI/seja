@@ -56,6 +56,8 @@ async def get_db(workspace_path: str = ""):
 
 async def close_all():
     for path, conn in _connection_pool.items():
-        if not conn.closed:
+        try:
             await conn.close()
+        except Exception:
+            pass
     _connection_pool.clear()
