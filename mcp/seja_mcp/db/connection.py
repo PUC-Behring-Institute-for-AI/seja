@@ -19,11 +19,11 @@ PRAGMAS = [
 
 
 def get_db_path(workspace_path: str = "") -> str:
-    if workspace_path:
+    if workspace_path and not workspace_path.endswith(".db"):
         state_dir = os.path.join(workspace_path, ".seja", "state")
         os.makedirs(state_dir, exist_ok=True)
         return os.path.join(state_dir, "seja.db")
-    return DB_PATH
+    return workspace_path or DB_PATH
 
 
 @asynccontextmanager

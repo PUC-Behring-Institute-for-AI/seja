@@ -122,7 +122,7 @@ get_version() {
   local ver="${SEJA_SCRIPT_VERSION}"
   if command -v git &>/dev/null; then
     local git_ver
-    git_ver="$(git describe --tags --always --dirty 2>/dev/null)" && ver="${git_ver}"
+    git_ver="$(git describe --tags --always --dirty 2>/dev/null)" && ver="${git_ver#v}"
   fi
   echo "${ver}"
 }
@@ -467,7 +467,6 @@ ENVEOF
   # Create empty override file
   if [[ ! -f "${SEJA_COMPOSE_OVERRIDE}" ]]; then
     {
-      echo "version: \"3.9\""
       echo "services:"
       echo "  ${SEJA_CONTAINER_NAME}:"
       echo "    volumes: []"
@@ -797,7 +796,6 @@ cmd_start() {
   # Ensure override file exists
   if [[ ! -f "${SEJA_COMPOSE_OVERRIDE}" ]]; then
     {
-      echo "version: \"3.9\""
       echo "services:"
       echo "  ${SEJA_CONTAINER_NAME}:"
       echo "    volumes: []"
@@ -1315,7 +1313,6 @@ cmd_workspace() {
       # Generate/update docker-compose.override.yml
       local override_file="${SEJA_COMPOSE_OVERRIDE}"
       {
-        echo "version: \"3.9\""
         echo "services:"
         echo "  ${SEJA_CONTAINER_NAME}:"
         echo "    volumes:"
@@ -1360,7 +1357,6 @@ cmd_workspace() {
       # Regenerate override
       local override_file="${SEJA_COMPOSE_OVERRIDE}"
       {
-        echo "version: \"3.9\""
         echo "services:"
         echo "  ${SEJA_CONTAINER_NAME}:"
         echo "    volumes:"
