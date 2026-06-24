@@ -93,6 +93,8 @@ OPENCODE_CONFIG_REPO="${OPENCODE_CONFIG_REPO:-}"
 OPENCODE_CONFIG_BRANCH="${OPENCODE_CONFIG_BRANCH:-main}"
 OPENCODE_ACCESS_TOKEN="${OPENCODE_ACCESS_TOKEN:-}"
 OMNITOOLS_ENABLED="${OMNITOOLS_ENABLED:-true}"
+SEJA_AUTO_PULL="${SEJA_AUTO_PULL:-true}"
+SEJA_VERSION_FILE="${SEJA_VERSION_FILE:-${SEJA_SEJA_DIR}/.version}"
 
 # ──────────────────────────────────────────────
 # Helper functions
@@ -689,6 +691,100 @@ cmd_status() {
   echo ""
 }
 
+# ── use ───────────────────────────────────────
+cmd_use() {
+  local version="${1:-}"
+  if [[ -z "${version}" ]]; then
+    log_err "Usage: seja use <version>"
+    echo "Examples:"
+    echo "  seja use 2.1.5     Pin to v2.1.5"
+    echo "  seja use latest    Switch back to latest"
+    exit 1
+  fi
+
+  require_docker
+
+  # Save current image as previous
+  mkdir -p "$(dirname "${SEJA_VERSION_FILE}")"
+  echo "SEJA_PREVIOUS_IMAGE=${SEJA_IMAGE}" > "${SEJA_VERSION_FILE}"
+
+  local new_image
+  if [[ "${version}" == "latest" ]]; then
+    new_image="ghcr.io/puc-behring-institute-for-ai/seja:latest"
+  elif [[ "${version}" == */* ]]; then
+    new_image="${version}"
+  else
+    new_image="ghcr.io/puc-behring-institute-for-ai/seja:${version}"
+  fi
+
+  # Update .env (cross-platform sed)
+  if grep -q "^SEJA_IMAGE=" "${SEJA_ENV_FILE}" 2>/dev/null; then
+    if [[ "$(uname)" == "Darwin" ]]; then
+      sed -i '' "s|^SEJA_IMAGE=.*|SEJA_IMAGE=${new_image}|" "${SEJA_ENV_FILE}"
+    else
+      sed -i "s|^SEJA_IMAGE=.*|SEJA_IMAGE=${new_image}|" "${SEJA_ENV_FILE}"
+    fi
+  else
+    echo "SEJA_IMAGE=${new_image}" >> "${SEJA_ENV_FILE}"
+  fi
+
+  # Reload config and pull new image
+  load_config
+  ensure_ghcr_login "${SEJA_IMAGE}" || true
+  if docker pull "${SEJA_IMAGE}"; then
+    log_ok "Switched to ${SEJA_IMAGE}"
+  else
+    log_err "Failed to pull ${SEJA_IMAGE}"
+    exit 1
+  fi
+
+  log_info "Run 'seja restart' to apply the new version"
+}
+
+# ── rollback ──────────────────────────────────
+cmd_rollback() {
+  if [[ ! -f "${SEJA_VERSION_FILE}" ]]; then
+    log_err "No previous version found. Use 'seja use <version>' to switch versions."
+    exit 1
+  fi
+
+  local prev_image
+  prev_image="$(grep "^SEJA_PREVIOUS_IMAGE=" "${SEJA_VERSION_FILE}" 2>/dev/null | head -1 | cut -d= -f2-)"
+
+  if [[ -z "${prev_image}" ]]; then
+    log_err "No previous version found. Use 'seja use <version>' to switch versions."
+    exit 1
+  fi
+
+  local prev_tag
+  prev_tag="$(echo "${prev_image}" | sed 's|.*:||')"
+
+  log_info "Rolling back to: ${prev_image}"
+  cmd_use "${prev_tag}"
+}
+
+# ── versions ──────────────────────────────────
+cmd_versions() {
+  echo "${C_BOLD}Current image:${C_RESET} ${SEJA_IMAGE}"
+  echo ""
+
+  echo "${C_BOLD}Locally cached images:${C_RESET}"
+  local repo
+  repo="$(echo "${SEJA_IMAGE}" | sed 's|:[^:]*$||')"
+  docker images "${repo}" --format "table {{.Tag}}\t{{.Size}}\t{{.CreatedAt}}" 2>/dev/null || echo "  (none)"
+  echo ""
+
+  echo "${C_BOLD}Available releases:${C_RESET}"
+  if command -v gh &>/dev/null; then
+    gh release list --repo PUC-Behring-Institute-for-AI/seja -L 15 --json tagName,publishedAt \
+      --jq '.[] | "  \(.tagName)  (\(.publishedAt[:10]))"' 2>/dev/null || \
+      echo "  (could not fetch releases)"
+  else
+    echo "  Install gh CLI (github.com/cli/cli) to list releases"
+    echo "  Or visit: https://github.com/PUC-Behring-Institute-for-AI/seja/releases"
+  fi
+}
+
 # ── start ─────────────────────────────────────
 cmd_start() {
   require_docker
@@ -706,6 +802,16 @@ cmd_start() {
       echo "  ${SEJA_CONTAINER_NAME}:"
       echo "    volumes: []"
     } > "${SEJA_COMPOSE_OVERRIDE}"
+  fi
+
+  if [[ "${SEJA_AUTO_PULL}" == "true" ]] && [[ "${SEJA_IMAGE}" == *":latest" ]]; then
+    ensure_ghcr_login "${SEJA_IMAGE}" || true
+    log_info "Checking for updates..."
+    if docker pull "${SEJA_IMAGE}" 2>/dev/null; then
+      log_ok "Image is up to date"
+    else
+      log_warn "Could not pull latest image, using cached version"
+    fi
   fi
 
   log_info "Starting SEJA services..."
@@ -847,6 +953,9 @@ cmd_update() {
     log_info "Update check passed. Image ${SEJA_IMAGE} is verified."
     return 0
   fi
+
+  # Save current version as previous before pulling
+  echo "SEJA_PREVIOUS_IMAGE=${SEJA_IMAGE}" > "${SEJA_VERSION_FILE}"
 
   # Pull latest image
   log_info "Pulling latest image..."
@@ -1015,6 +1124,28 @@ cmd_help() {
         echo "Options:"
         echo "  --check      Check for updates without applying"
         ;;
+      use)
+        echo "Usage: seja use <version>"
+        echo ""
+        echo "Switch SEJA to a specific version."
+        echo "The previous version is saved for rollback."
+        echo ""
+        echo "Examples:"
+        echo "  seja use 2.1.5      Pin to v2.1.5"
+        echo "  seja use latest     Switch back to latest"
+        echo "  seja use ghcr.io/org/seja:custom  Custom image"
+        ;;
+      rollback)
+        echo "Usage: seja rollback"
+        echo ""
+        echo "Revert to the version that was active before the last"
+        echo "'seja use' or 'seja update'."
+        ;;
+      versions)
+        echo "Usage: seja versions"
+        echo ""
+        echo "List locally cached images and available GitHub releases."
+        ;;
       workspace)
         echo "Usage: seja workspace <add|remove|list|sync> [args]"
         echo ""
@@ -1110,6 +1241,9 @@ ${C_BOLD}Core Commands:${C_RESET}
   shell          Open interactive shell in container
   exec           Execute command in container
   update         Update SEJA to latest version
+  use <ver>      Switch to a specific version (e.g. 2.1.5)
+  rollback       Revert to the previous version
+  versions       List cached and available versions
   version        Show version
   help [cmd]     Show help for a command
 
@@ -2322,6 +2456,9 @@ main() {
     logs)       cmd_logs "$@" ;;
     shell)      cmd_shell "$@" ;;
     exec)       cmd_exec "$@" ;;
+    use)        cmd_use "$@" ;;
+    rollback)   cmd_rollback "$@" ;;
+    versions)   cmd_versions "$@" ;;
     update)     cmd_update "$@" ;;
     version|--version|-v) cmd_version "$@" ;;
     help|--help|-h) cmd_help "$@" ;;
