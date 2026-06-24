@@ -2,9 +2,7 @@
 name: seja-brief
 role: Context summarizer — produces briefs for context management
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow: []
 ---

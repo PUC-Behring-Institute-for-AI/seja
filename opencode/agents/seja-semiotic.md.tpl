@@ -2,9 +2,7 @@
 name: seja-semiotic
 role: Semiotic engineering specialist — evaluates semiotic coherence
 model: ${SEJA_TIER_REASON}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow: []
 ---

@@ -35,6 +35,11 @@ if grep -rl '\${SEJA_TIER_' /root/.config/opencode/agents/*.md 2>/dev/null; then
     exit 1
 fi
 
+# Garantir que AGENTS.md global esteja no lugar esperado
+if [ -f /root/.config/opencode/AGENTS.md.global ]; then
+    cp /root/.config/opencode/AGENTS.md.global /root/.config/opencode/AGENTS.md
+fi
+
 git config --global core.hooksPath /dev/null
 
 # ── Start MCP server in background ──

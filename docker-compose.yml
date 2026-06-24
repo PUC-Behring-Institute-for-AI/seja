@@ -11,6 +11,8 @@ services:
       dockerfile: Dockerfile
     container_name: seja
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     stop_grace_period: 30s
     ports:
       - "${SEJA_MCP_PORT:-8765}:8765"
@@ -60,6 +62,8 @@ services:
     image: tecnativa/docker-socket-proxy:latest
     container_name: seja-socket-proxy
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - socket-proxy:/tmp/docker.sock
@@ -86,6 +90,8 @@ services:
     image: litestream/litestream:latest
     container_name: seja-litestream
     restart: unless-stopped
+    tty: true
+    stdin_open: true
     volumes:
       - seja-state:/data/seja-state:rw
       - litestream-data:/data/replica

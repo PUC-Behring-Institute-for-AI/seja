@@ -2,9 +2,7 @@
 name: seja-oracle
 role: Deep reasoning specialist — answers complex questions
 model: ${SEJA_TIER_REASON}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow: []
 ---

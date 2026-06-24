@@ -908,7 +908,7 @@ cmd_exec() {
     exit 1
   fi
 
-  if [[ $# -eq 0 ]]; then
+  if [[ "$*" == "" ]]; then
     log_err "Usage: seja exec <command>"
     exit 1
   fi
@@ -1226,15 +1226,18 @@ cmd_help() {
 ${C_BOLD}SEJA${C_RESET} — Semiotic Engineering Journeys with Agents v$(get_version)
 
 ${C_BOLD}Usage:${C_RESET}
-  seja <command> [options] [args]
+  seja [command] [options] [args]
+
+${C_BOLD}(default)${C_RESET}        Open SEJA OpenCode TUI (start infra + attach)
 
 ${C_BOLD}Core Commands:${C_RESET}
   setup          Initialize ~/.seja/ directory structure and pull image
   init [path]    Initialize a new SEJA project at path (or CWD)
   status         Show container status, MCP health, workspace info
   start          Start SEJA services (docker compose up -d)
-  stop           Stop SEJA services (docker compose down)
   restart        Restart SEJA services
+  stop           Stop SEJA services (docker compose down)
+  web            Open SEJA + OpenCode in the browser
   logs           View service logs
   shell          Open interactive shell in container
   exec           Execute command in container
@@ -2429,13 +2432,73 @@ ZSHCOMP
 }
 
 # ──────────────────────────────────────────────
+# ──────────────────────────────────────────────
+# TUI / Web modes
+# ──────────────────────────────────────────────
+
+get_openode_port() {
+  local port="${SEJA_OPENCODE_PORT:-4096}"
+  echo "${port}"
+}
+
+wait_opencode_server() {
+  local timeout="${1:-60}"
+  local port
+  port="$(get_openode_port)"
+  local url="http://localhost:${port}/api/health"
+  log_info "Waiting for OpenCode server at ${url} (timeout: ${timeout}s)..."
+  local elapsed=0
+  while [[ ${elapsed} -lt ${timeout} ]]; do
+    if curl -sf "${url}" >/dev/null 2>&1; then
+      log_ok "OpenCode server is ready"
+      return 0
+    fi
+    sleep 2
+    elapsed=$((elapsed + 2))
+  done
+  log_err "Timeout waiting for OpenCode server"
+  return 1
+}
+
+open_browser() {
+  local url="$1"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    open "${url}"
+  elif command -v xdg-open &>/dev/null; then
+    xdg-open "${url}"
+  else
+    log_info "Open this URL in your browser: ${url}"
+  fi
+}
+
+run_tui_mode() {
+  cmd_start
+  local port
+  port="$(get_openode_port)"
+  wait_opencode_server 60 || {
+    log_err "OpenCode nao ficou pronto para o TUI em 60s; verifique com 'seja logs'"
+    exit 1
+  }
+  docker exec -it "${SEJA_CONTAINER_NAME}" oc attach "http://localhost:${port}"
+}
+
+run_web_mode() {
+  cmd_start
+  wait_opencode_server 60 || log_info "Servidor ainda inicializando; tente 'seja status'"
+  local port
+  port="$(get_openode_port)"
+  local url="http://localhost:${port}"
+  log_ok "OpenCode Web UI: ${url}"
+  open_browser "${url}"
+}
+
 # Main dispatch
 # ──────────────────────────────────────────────
 
 main() {
-  if [[ $# -eq 0 ]]; then
-    # Default behavior: start and attach
-    cmd_start
+  if [[ "$*" == "" ]]; then
+    # Default behavior: start TUI mode
+    run_tui_mode
     exit $?
   fi
 
@@ -2470,6 +2533,7 @@ main() {
     sync)       cmd_sync "$@" ;;
     list)       cmd_list "$@" ;;
     completion) cmd_completion "$@" ;;
+    web|--web)  run_web_mode ;;
     *)
       log_err "Unknown command: ${cmd}"
       echo ""
@@ -2480,3 +2544,4 @@ main() {
 }
 
 main "$@"
+

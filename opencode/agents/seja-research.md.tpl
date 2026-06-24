@@ -2,9 +2,7 @@
 name: seja-research
 role: Research assistant — investigates technologies and solutions
 model: ${SEJA_TIER_REASON}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow:
     - "curl"

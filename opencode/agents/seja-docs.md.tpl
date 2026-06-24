@@ -2,9 +2,7 @@
 name: seja-docs
 role: Documentation writer — generates and maintains docs
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow:
     - "git add"

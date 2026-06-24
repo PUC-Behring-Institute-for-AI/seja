@@ -2,9 +2,7 @@
 name: seja-workspace
 role: Workspace manager — configures and maintains workspaces
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow:
     - "git worktree"

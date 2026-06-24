@@ -2,9 +2,7 @@
 name: seja-triage
 role: Inbox manager — reads and categorizes new input
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow: []
 ---

@@ -4,8 +4,6 @@ role: Solution architect — decomposes strategy into concrete plans
 model: ${SEJA_TIER_REASON}
 mode: primary
 groups: [seja]
-mcp_servers:
-  - url: http://localhost:8765
 bash:
   allow:
     - "git *"

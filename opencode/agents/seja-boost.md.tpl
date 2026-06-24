@@ -2,9 +2,7 @@
 name: seja-boost
 role: Performance optimizer — accelerates workflows
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow:
     - "git *"

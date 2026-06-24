@@ -333,9 +333,11 @@ After `seja setup`, your `~/.seja/` contains:
 | `seja setup [--dry-run] [--no-pull] [--image IMG]` | Initialize `~/.seja/` directory structure and pull image |
 | `seja init [path]` | Initialize `.seja/` workspace at path with templates |
 | `seja status [--json]` | Show container status, MCP health, workspace info |
+| `seja` | (default) Open SEJA OpenCode TUI (start + attach) |
 | `seja start` | Start SEJA services (`docker compose up -d`) |
 | `seja stop` | Stop SEJA services (`docker compose down`) |
 | `seja restart` | Restart SEJA services |
+| `seja web` | Open SEJA + OpenCode in the browser |
 | `seja logs [service] [--tail N] [--follow]` | View container logs |
 | `seja shell [service]` | Open interactive shell in a container |
 | `seja exec <cmd>` | Execute command in the SEJA container |

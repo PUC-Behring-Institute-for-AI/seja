@@ -2,9 +2,7 @@
 name: seja-tester
 role: Test specialist — writes and runs tests
 model: ${SEJA_TIER_FAST}
-mode: hidden
-mcp_servers:
-  - url: http://localhost:8765
+mode: subagent
 bash:
   allow:
     - "python -m pytest *"
