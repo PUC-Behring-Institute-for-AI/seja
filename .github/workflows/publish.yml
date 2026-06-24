@@ -39,6 +39,9 @@ jobs:
       - name: Test with coverage
         run: pytest tests/ --cov=mcp --cov-report=xml --cov-report=term-missing
 
+      - name: CLI tests
+        run: bats tests/cli/
+
       - name: Test invariants
         run: pytest tests/invariants/ -v
 

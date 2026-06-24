@@ -4,7 +4,7 @@ SEJA_DEV_TAG ?= seja:dev
 DOCKER_BUILDKIT := 1
 COMPOSE_FILE := docker-compose.yml
 
-.PHONY: help build build-local test test-unit test-integration test-invariants test-local lint typecheck format clean install-dev install image push sign sign-blob verify validate release changelog version security-scan
+.PHONY: help build build-local test test-cli test-unit test-integration test-invariants test-local lint typecheck format clean install-dev install image push sign sign-blob verify validate release changelog version security-scan
 
 help:
 	@echo 'SEJA — Makefile'
@@ -52,7 +52,10 @@ test-local: build-local ## Build and test container locally
 	@docker rm -f seja-test >/dev/null 2>&1
 	@echo "✓ Test passed"
 
-test: test-unit test-integration test-invariants ## Run all test suites
+test: test-cli test-unit test-integration test-invariants ## Run all test suites
+
+test-cli: ## Run CLI tests with bats
+	bats tests/cli/
 
 test-unit: ## Run unit tests only
 	python -m pytest tests/unit -v --cov=mcp --cov-report=term-missing
